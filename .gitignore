@@ -14,3 +14,4 @@ build/
 *.egg
 .ipynb_checkpoints/
 .DS_Store
+tmp/

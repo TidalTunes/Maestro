@@ -1,1 +1,9 @@
+<<<<<<< HEAD
 PyQt6>=6.0.0
+=======
+-e .
+fastapi>=0.115,<1
+httpx>=0.27,<1
+openai>=1.70,<2
+uvicorn[standard]>=0.34,<1
+>>>>>>> 2bb576b (Initial agentic system module)
