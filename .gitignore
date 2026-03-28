@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 *.so
 .Python
 env/
@@ -11,4 +12,5 @@ dist/
 build/
 .eggs/
 *.egg
+.ipynb_checkpoints/
 .DS_Store
