@@ -12,10 +12,17 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.agent import AgentError, GeneratedMusicXML, execute_generated_code, sanitize_filename_stem
+from app.agent import (
+    AgentError,
+    GeneratedMusicXML,
+    build_model_input,
+    execute_generated_code,
+    sanitize_filename_stem,
+)
 from app.config import Settings
 from app.context import ReferenceLoadError, load_reference_corpus
 from app.guard import CodeGuardError, validate_generated_code
+from app.humming import HummingService
 from app.main import app
 
 
@@ -116,6 +123,19 @@ class GuardTests(unittest.TestCase):
             )
 
 
+class PromptInputTests(unittest.TestCase):
+    def test_build_model_input_appends_hummed_notes_context(self) -> None:
+        payload = build_model_input("write a short prelude", "A4, quarter\nB4, quarter")
+
+        self.assertIn("write a short prelude", payload)
+        self.assertIn("The user hummed the following notes into the microphone.", payload)
+        self.assertIn("A4, quarter\nB4, quarter", payload)
+
+    def test_build_model_input_requires_prompt(self) -> None:
+        with self.assertRaises(AgentError):
+            build_model_input("   ", "A4, quarter")
+
+
 class ExecutionTests(unittest.TestCase):
     def test_execute_generated_code_runs_with_fake_maestroxml(self) -> None:
         with TemporaryDirectory() as directory:
@@ -184,7 +204,11 @@ class AppTests(unittest.TestCase):
         with patch("app.main.agent_module.generate_musicxml_from_prompt", return_value=result):
             response = self.client.post(
                 "/api/generate",
-                json={"api_key": "sk-test", "prompt": "write a flute solo"},
+                json={
+                    "api_key": "sk-test",
+                    "prompt": "write a flute solo",
+                    "hummed_notes": "A4, quarter",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
@@ -207,6 +231,65 @@ class AppTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["error"], "validation failed")
         self.assertEqual(payload["python_code"], "bad code")
+
+    def test_generate_endpoint_forwards_hummed_notes(self) -> None:
+        result = GeneratedMusicXML(
+            filename="test_piece.musicxml",
+            python_code="from maestroxml import Score\n\ndef build_score(output_path):\n    pass\n",
+            musicxml="<score-partwise version='4.0'/>",
+        )
+        with patch("app.main.agent_module.generate_musicxml_from_prompt", return_value=result) as generate_mock:
+            response = self.client.post(
+                "/api/generate",
+                json={
+                    "api_key": "sk-test",
+                    "prompt": "write a flute solo",
+                    "hummed_notes": "A4, quarter",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate_mock.call_args.args[3], "A4, quarter")
+
+    def test_humming_start_endpoint_starts_recording(self) -> None:
+        with patch("app.main.humming_service.start_recording") as start_mock:
+            response = self.client.post("/api/humming/start")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "Recording... hum, then press Stop.")
+        start_mock.assert_called_once_with()
+
+    def test_humming_stop_endpoint_returns_detected_notes(self) -> None:
+        with patch("app.main.humming_service.stop_recording", return_value="A4, quarter") as stop_mock:
+            response = self.client.post("/api/humming/stop")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["hummed_notes"], "A4, quarter")
+        stop_mock.assert_called_once_with()
+
+
+class FakeController:
+    def __init__(self) -> None:
+        self.is_recording = False
+
+    def start_recording(self) -> None:
+        self.is_recording = True
+
+    def stop_recording(self) -> str:
+        self.is_recording = False
+        return "C4, quarter"
+
+
+class HummingServiceTests(unittest.TestCase):
+    def test_service_round_trip_stores_last_notes(self) -> None:
+        service = HummingService(controller_factory=FakeController)
+
+        service.start_recording()
+        notes = service.stop_recording()
+
+        self.assertEqual(notes, "C4, quarter")
+        self.assertEqual(service.last_notes, "C4, quarter")
+        self.assertFalse(service.is_recording)
 
 
 if __name__ == "__main__":

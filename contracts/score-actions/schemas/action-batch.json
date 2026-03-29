@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScoreActionBatch",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "score_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "./action.json"
+      }
+    }
+  },
+  "required": ["schema_version", "request_id", "score_id", "actions"]
+}

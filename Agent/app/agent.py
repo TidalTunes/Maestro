@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
 from app.config import Settings
 from app.context import ReferenceLoadError, load_reference_corpus
 from app.guard import CodeGuardError, validate_generated_code
-
 
 RUNNER_SCRIPT = """
 from __future__ import annotations
@@ -70,6 +69,7 @@ def build_generation_instructions(reference_corpus: str) -> str:
         "- Do not read files, inspect environment variables, open network connections, invoke subprocesses, or execute dynamic code.\n"
         "- Use loops and helper data structures inside build_score when the musical material repeats.\n"
         "- If title or composer are missing, choose short tasteful defaults.\n"
+        "- If applicable, cellos should be denoted as Violoncello.\n"
         "</code_contract>\n\n"
         "<duration_contract>\n"
         "- Supported duration names are whole, half, quarter, eighth, 16th, 32nd, 64th.\n"
@@ -82,12 +82,39 @@ def build_generation_instructions(reference_corpus: str) -> str:
     )
 
 
+def build_model_input(prompt: str, hummed_notes: str = "") -> str:
+    cleaned_prompt = prompt.strip()
+    if not cleaned_prompt:
+        raise AgentError("The musical prompt cannot be empty.")
+
+    sections = [
+        "<user_prompt>",
+        cleaned_prompt,
+        "</user_prompt>",
+    ]
+
+    cleaned_hummed_notes = hummed_notes.strip()
+    if cleaned_hummed_notes:
+        sections.extend(
+            [
+                "",
+                "<hummed_melody_context>",
+                "The user hummed the following notes into the microphone. Treat this as supplemental melodic and rhythmic context for the requested piece:",
+                cleaned_hummed_notes,
+                "</hummed_melody_context>",
+            ]
+        )
+
+    return "\n".join(sections)
+
+
 def generate_musicxml_from_prompt(
     prompt: str,
     api_key: str,
     settings: Settings,
+    hummed_notes: str = "",
 ) -> GeneratedMusicXML:
-    python_code = generate_python_code(prompt, api_key, settings)
+    python_code = generate_python_code(prompt, api_key, settings, hummed_notes=hummed_notes)
     try:
         validate_generated_code(python_code)
         filename, musicxml = execute_generated_code(
@@ -105,11 +132,12 @@ def generate_musicxml_from_prompt(
         python_code=python_code,
         musicxml=musicxml,
     )
-
-
-def generate_python_code(prompt: str, api_key: str, settings: Settings) -> str:
-    if not prompt.strip():
-        raise AgentError("The musical prompt cannot be empty.")
+def generate_python_code(
+    prompt: str,
+    api_key: str,
+    settings: Settings,
+    hummed_notes: str = "",
+) -> str:
     if not api_key.strip():
         raise AgentError("An OpenAI API key is required.")
 
@@ -130,7 +158,7 @@ def generate_python_code(prompt: str, api_key: str, settings: Settings) -> str:
         response = client.responses.create(
             model=settings.openai_model,
             instructions=build_generation_instructions(reference_corpus),
-            input=prompt.strip(),
+            input=build_model_input(prompt, hummed_notes),
             reasoning={"effort": settings.openai_reasoning_effort},
             max_output_tokens=settings.openai_max_output_tokens,
             store=False,
@@ -186,11 +214,17 @@ def execute_generated_code(
             ) from exc
 
         if completed.returncode != 0:
-            detail = completed.stderr.strip() or completed.stdout.strip() or "Unknown execution failure."
+            detail = (
+                completed.stderr.strip()
+                or completed.stdout.strip()
+                or "Unknown execution failure."
+            )
             raise AgentError(f"Generated code failed while writing MusicXML:\n{detail}")
 
         if not output_path.exists():
-            raise AgentError("Generated code finished without producing a MusicXML file.")
+            raise AgentError(
+                "Generated code finished without producing a MusicXML file."
+            )
 
         return output_path.name, output_path.read_text(encoding="utf-8")
 
