@@ -24,6 +24,7 @@ DEFAULT_SKILL_DIR = (
 DEFAULT_DOCS_DIR = ROOT_DIR / "packages" / "maestroxml" / "docs"
 DEFAULT_TICKS_PER_QUARTER = 480
 DEFAULT_MEASURE_TICKS = DEFAULT_TICKS_PER_QUARTER * 4
+LIVE_EDIT_STREAM_DELAY_SECONDS = 0.01
 
 
 def bootstrap_local_imports() -> None:
@@ -688,7 +689,10 @@ class DesktopAgentBackend:
             )
 
         try:
-            bridge_result = bridge_client.apply_actions(actions)
+            bridge_result = bridge_client.apply_actions_streamed(
+                actions,
+                delay_seconds=LIVE_EDIT_STREAM_DELAY_SECONDS,
+            )
         except BridgeError as exc:
             raise LiveEditError(str(exc), python_code=python_code) from exc
 

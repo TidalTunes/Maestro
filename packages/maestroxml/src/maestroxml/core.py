@@ -209,6 +209,43 @@ BRIDGE_BEAM_MODES = {
 }
 
 DEFAULT_TIME_SIGNATURE = (4, 4)
+STEP_TO_PITCH_CLASS = {
+    "C": 0,
+    "D": 2,
+    "E": 4,
+    "F": 5,
+    "G": 7,
+    "A": 9,
+    "B": 11,
+}
+SHARP_SPELLINGS = {
+    0: ("C", None),
+    1: ("C", 1),
+    2: ("D", None),
+    3: ("D", 1),
+    4: ("E", None),
+    5: ("F", None),
+    6: ("F", 1),
+    7: ("G", None),
+    8: ("G", 1),
+    9: ("A", None),
+    10: ("A", 1),
+    11: ("B", None),
+}
+FLAT_SPELLINGS = {
+    0: ("C", None),
+    1: ("D", -1),
+    2: ("D", None),
+    3: ("E", -1),
+    4: ("E", None),
+    5: ("F", None),
+    6: ("G", -1),
+    7: ("G", None),
+    8: ("A", -1),
+    9: ("A", None),
+    10: ("B", -1),
+    11: ("B", None),
+}
 
 
 @dataclass(frozen=True)
@@ -456,11 +493,11 @@ def _parse_key_signature(
 
 
 def _pitch_to_string(pitch: Pitch) -> str:
+    pitch = _simplify_pitch(pitch)
     accidental_map = {
         None: "",
         -2: "bb",
         -1: "b",
-        0: "n",
         1: "#",
         2: "##",
     }
@@ -468,6 +505,21 @@ def _pitch_to_string(pitch: Pitch) -> str:
     if accidental is None:
         raise ValueError(f"Unsupported pitch alteration for bridge output: {pitch.alter}")
     return f"{pitch.step}{accidental}{pitch.octave}"
+
+
+def _simplify_pitch(pitch: Pitch) -> Pitch:
+    alter = 0 if pitch.alter is None else pitch.alter
+    if alter in {-1, 0, 1}:
+        return Pitch(step=pitch.step, octave=pitch.octave, alter=None if alter == 0 else alter)
+
+    midi = (pitch.octave + 1) * 12 + STEP_TO_PITCH_CLASS[pitch.step] + alter
+    pitch_class = midi % 12
+    step, simplified_alter = (
+        SHARP_SPELLINGS[pitch_class] if alter > 0 else FLAT_SPELLINGS[pitch_class]
+    )
+    simple_pitch_class = STEP_TO_PITCH_CLASS[step] + (simplified_alter or 0)
+    octave = ((midi - simple_pitch_class) // 12) - 1
+    return Pitch(step=step, octave=octave, alter=simplified_alter)
 
 
 def _ticks_from_quarter_fraction(value: Fraction) -> int:

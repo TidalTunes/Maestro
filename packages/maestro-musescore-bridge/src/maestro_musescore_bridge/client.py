@@ -41,7 +41,7 @@ class MuseScoreBridgeClient:
         bridge_dir: str | Path | None = None,
         *,
         timeout: float = 10.0,
-        poll_interval: float = 0.05,
+        poll_interval: float = 0.01,
     ) -> None:
         base = Path.home() / DEFAULT_BRIDGE_DIRNAME if bridge_dir is None else Path(bridge_dir)
         self.bridge_dir = base
@@ -90,6 +90,84 @@ class MuseScoreBridgeClient:
             actions=payload_actions,
             fail_on_partial=fail_on_partial,
         )
+
+    def apply_actions_streamed(
+        self,
+        actions: Iterable[Mapping[str, Any] | ScoreAction],
+        *,
+        delay_seconds: float = 0.01,
+        fail_on_partial: bool = True,
+    ) -> Mapping[str, Any]:
+        payload_actions = [self._normalize_action(action) for action in actions]
+        if not payload_actions:
+            return {
+                "command_count": 0,
+                "all_ok": True,
+                "results": [],
+            }
+
+        delay = max(0.0, float(delay_seconds))
+        aggregated_results: list[Any] = []
+
+        for index, action in enumerate(payload_actions):
+            try:
+                result = self.request(
+                    "apply_actions",
+                    actions=[action],
+                    fail_on_partial=False,
+                )
+            except BridgeError as exc:
+                if aggregated_results:
+                    raise BridgeResponseError(
+                        "Streaming actions to the MuseScore bridge failed.",
+                        {
+                            "ok": False,
+                            "error": str(exc),
+                            "result": {
+                                "command_count": len(aggregated_results),
+                                "all_ok": False,
+                                "results": aggregated_results,
+                            },
+                        },
+                    ) from exc
+                raise
+
+            per_action_results = result.get("results", [])
+            if isinstance(per_action_results, list):
+                aggregated_results.extend(per_action_results)
+            else:
+                aggregated_results.append(
+                    {
+                        "ok": False,
+                        "error": "Bridge returned invalid streamed action results.",
+                    }
+                )
+
+            latest_ok = bool(aggregated_results[-1].get("ok")) if aggregated_results else False
+            if not latest_ok and fail_on_partial:
+                raise BridgeResponseError(
+                    "One or more actions failed",
+                    {
+                        "ok": False,
+                        "error": "One or more actions failed",
+                        "result": {
+                            "command_count": len(aggregated_results),
+                            "all_ok": False,
+                            "results": aggregated_results,
+                        },
+                    },
+                )
+
+            if delay > 0.0 and index < len(payload_actions) - 1:
+                time.sleep(delay)
+
+        return {
+            "command_count": len(aggregated_results),
+            "all_ok": all(
+                isinstance(item, Mapping) and item.get("ok") is True for item in aggregated_results
+            ),
+            "results": aggregated_results,
+        }
 
     def apply_commands(
         self,

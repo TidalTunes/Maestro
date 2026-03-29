@@ -25,6 +25,7 @@ Use `maestroxml` as an opinionated abstraction over MuseScore score edits.
 - Add only the requested notes, rests, chords, directions, time signatures, key signatures, measures, or parts.
 - Do not recreate existing notes, rests, chords, directions, parts, or measures unless the user explicitly asks to change them.
 - Reuse named globals from the current score context when available.
+- Prefer naturals and single sharps/flats over double-sharp or double-flat spellings unless the user explicitly asks for them.
 - Use `part.voice(number, staff=...)` for multi-staff or multi-voice work.
 
 ## Supported API Shape

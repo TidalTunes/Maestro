@@ -91,7 +91,7 @@ class DesktopAgentBackendTests(unittest.TestCase):
             "path": "/tmp/current-score.musicxml",
             "format": "musicxml",
         }
-        bridge_client.apply_actions.return_value = {
+        bridge_client.apply_actions_streamed.return_value = {
             "command_count": 2,
             "all_ok": True,
             "results": [{"ok": True}, {"ok": True}],
@@ -136,7 +136,13 @@ class DesktopAgentBackendTests(unittest.TestCase):
         self.assertIn("apply_changes", result.python_code)
         transcriber.assert_called_once_with(Path("/tmp/hum.wav"))
         bridge_client.export_musicxml.assert_called_once_with()
-        bridge_client.apply_actions.assert_called_once()
+        bridge_client.apply_actions_streamed.assert_called_once_with(
+            [
+                {"kind": "add_note", "pitch": "C5", "duration": "quarter", "tick": 0},
+                {"kind": "add_dynamic", "text": "mf", "tick": 0},
+            ],
+            delay_seconds=backend.LIVE_EDIT_STREAM_DELAY_SECONDS,
+        )
         load_refs_mock.assert_called_once_with(
             settings.root_dir,
             settings.maestro_skill_dir,
@@ -218,7 +224,7 @@ class DesktopAgentBackendTests(unittest.TestCase):
                 },
             ]
         }
-        bridge_client.apply_actions.return_value = {
+        bridge_client.apply_actions_streamed.return_value = {
             "command_count": 1,
             "all_ok": True,
             "results": [{"ok": True}],

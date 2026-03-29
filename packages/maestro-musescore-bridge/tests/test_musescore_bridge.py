@@ -142,6 +142,53 @@ class MuseScoreBridgeTests(unittest.TestCase):
             finally:
                 worker.stop()
 
+    def test_client_can_stream_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge_dir = Path(tmp)
+            worker = FakeBridgeWorker(bridge_dir)
+            worker.start()
+            try:
+                client = MuseScoreBridgeClient(bridge_dir=bridge_dir, timeout=1.0, poll_interval=0.01)
+
+                apply_result = client.apply_actions_streamed(
+                    [
+                        {"kind": "add_note", "pitch": "C4", "duration": "quarter", "tick": 0},
+                        {"kind": "add_dynamic", "text": "mf", "tick": 0},
+                    ],
+                    delay_seconds=0.0,
+                )
+                self.assertEqual(apply_result["command_count"], 2)
+                self.assertTrue(apply_result["all_ok"])
+                self.assertEqual(len(apply_result["results"]), 2)
+            finally:
+                worker.stop()
+
+    def test_streamed_actions_raise_on_partial_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge_dir = Path(tmp)
+            worker = FakeBridgeWorker(bridge_dir)
+            worker.start()
+            try:
+                client = MuseScoreBridgeClient(bridge_dir=bridge_dir, timeout=1.0, poll_interval=0.01)
+
+                with self.assertRaises(BridgeResponseError) as ctx:
+                    client.apply_actions_streamed(
+                        [
+                            {"kind": "add_note", "pitch": "C4", "duration": "quarter", "tick": 0},
+                            {"kind": "add_note", "pitch": "BAD", "duration": "quarter", "tick": 480},
+                            {"kind": "add_dynamic", "text": "mf", "tick": 0},
+                        ],
+                        delay_seconds=0.0,
+                    )
+            finally:
+                worker.stop()
+
+        result = ctx.exception.response["result"]
+        self.assertEqual(result["command_count"], 2)
+        self.assertFalse(result["all_ok"])
+        self.assertEqual(result["results"][0]["ok"], True)
+        self.assertEqual(result["results"][1]["ok"], False)
+
     def test_client_timeout_without_plugin(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = MuseScoreBridgeClient(bridge_dir=Path(tmp), timeout=0.2, poll_interval=0.01)

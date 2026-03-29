@@ -52,15 +52,153 @@ function gcd(a, b) {
 
 // ─── Pitch Helpers ──────────────────────────────────────────────────────────
 
+var NOTE_TO_PITCH_CLASS = { "C":0,"D":2,"E":4,"F":5,"G":7,"A":9,"B":11 }
+var NATURAL_TPC = { "F":13,"C":14,"G":15,"D":16,"A":17,"E":18,"B":19 }
+var SHARP_SPELLINGS = {
+    0:{ step:"C", alter:0 }, 1:{ step:"C", alter:1 }, 2:{ step:"D", alter:0 },
+    3:{ step:"D", alter:1 }, 4:{ step:"E", alter:0 }, 5:{ step:"F", alter:0 },
+    6:{ step:"F", alter:1 }, 7:{ step:"G", alter:0 }, 8:{ step:"G", alter:1 },
+    9:{ step:"A", alter:0 }, 10:{ step:"A", alter:1 }, 11:{ step:"B", alter:0 }
+}
+var FLAT_SPELLINGS = {
+    0:{ step:"C", alter:0 }, 1:{ step:"D", alter:-1 }, 2:{ step:"D", alter:0 },
+    3:{ step:"E", alter:-1 }, 4:{ step:"E", alter:0 }, 5:{ step:"F", alter:0 },
+    6:{ step:"G", alter:-1 }, 7:{ step:"G", alter:0 }, 8:{ step:"A", alter:-1 },
+    9:{ step:"A", alter:0 }, 10:{ step:"B", alter:-1 }, 11:{ step:"B", alter:0 }
+}
+var DYNAMIC_MARKUP = {
+    "pppppp":"<sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "ppppp":"<sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "pppp":"<sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "ppp":"<sym>dynamicPiano</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "pp":"<sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "p":"<sym>dynamicPiano</sym>",
+    "mp":"<sym>dynamicMezzo</sym><sym>dynamicPiano</sym>",
+    "mf":"<sym>dynamicMezzo</sym><sym>dynamicForte</sym>",
+    "f":"<sym>dynamicForte</sym>",
+    "ff":"<sym>dynamicForte</sym><sym>dynamicForte</sym>",
+    "fff":"<sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym>",
+    "ffff":"<sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym>",
+    "fffff":"<sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym>",
+    "ffffff":"<sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicForte</sym>",
+    "sfz":"<sym>dynamicSforzando</sym><sym>dynamicForte</sym><sym>dynamicZ</sym>",
+    "sf":"<sym>dynamicSforzando</sym><sym>dynamicForte</sym>",
+    "fz":"<sym>dynamicForte</sym><sym>dynamicZ</sym>",
+    "fp":"<sym>dynamicForte</sym><sym>dynamicPiano</sym>",
+    "sfp":"<sym>dynamicSforzando</sym><sym>dynamicForte</sym><sym>dynamicPiano</sym>",
+    "sfpp":"<sym>dynamicSforzando</sym><sym>dynamicForte</sym><sym>dynamicPiano</sym><sym>dynamicPiano</sym>",
+    "sffz":"<sym>dynamicSforzando</sym><sym>dynamicForte</sym><sym>dynamicForte</sym><sym>dynamicZ</sym>",
+    "rf":"<sym>dynamicRinforzando</sym><sym>dynamicForte</sym>",
+    "rfz":"<sym>dynamicRinforzando</sym><sym>dynamicForte</sym><sym>dynamicZ</sym>",
+    "pf":"<sym>dynamicPiano</sym><sym>dynamicForte</sym>"
+}
+
+function parsePitchSpec(value) {
+    if (typeof value !== "string")
+        return null
+    var match = value.match(/^([A-Ga-g])(n|#{0,2}|b{0,2})(-?\d+)$/)
+    if (!match)
+        match = value.match(/^([A-Ga-g])(#{0,2}|b{0,2})(-?\d+)$/)
+    if (!match)
+        return null
+
+    var step = match[1].toUpperCase()
+    var accidentalText = match[2] || ""
+    var alter = 0
+    if (accidentalText === "n")
+        alter = 0
+    else {
+        for (var i = 0; i < accidentalText.length; i++)
+            alter += accidentalText[i] === "#" ? 1 : -1
+    }
+    var octave = parseInt(match[3], 10)
+    var midi = NOTE_TO_PITCH_CLASS[step] + (octave + 1) * 12 + alter
+    return {
+        step: step,
+        alter: alter,
+        octave: octave,
+        midi: midi
+    }
+}
+
+function simplifyPitchSpec(value) {
+    var parsed = parsePitchSpec(value)
+    if (!parsed)
+        return null
+    if (parsed.alter >= -1 && parsed.alter <= 1) {
+        return {
+            step: parsed.step,
+            alter: parsed.alter,
+            octave: parsed.octave,
+            midi: parsed.midi
+        }
+    }
+
+    var mapping = parsed.alter > 0
+        ? SHARP_SPELLINGS[((parsed.midi % 12) + 12) % 12]
+        : FLAT_SPELLINGS[((parsed.midi % 12) + 12) % 12]
+    var simplePitchClass = NOTE_TO_PITCH_CLASS[mapping.step] + mapping.alter
+    var octave = Math.floor((parsed.midi - simplePitchClass) / 12) - 1
+    return {
+        step: mapping.step,
+        alter: mapping.alter,
+        octave: octave,
+        midi: parsed.midi
+    }
+}
+
+function tpcFromPitch(value) {
+    var spec = simplifyPitchSpec(value)
+    if (!spec)
+        return null
+    return NATURAL_TPC[spec.step] + spec.alter * 7
+}
+
+function orderedPitchInputs(values) {
+    var result = []
+    for (var i = 0; i < values.length; i++) {
+        var item = values[i]
+        var spec = simplifyPitchSpec(item)
+        result.push({
+            input: item,
+            midi: spec ? spec.midi : resolvePitch(item)
+        })
+    }
+    result.sort(function(left, right) { return left.midi - right.midi })
+    return result
+}
+
+function applyPitchSpellings(cursor, tick, pitchInputs) {
+    if (!pitchInputs || pitchInputs.length === 0)
+        return
+    cursor.rewindToTick(tick)
+    var element = cursor.element
+    if (!element || !element.notes)
+        return
+
+    var ordered = orderedPitchInputs(pitchInputs)
+    for (var i = 0; i < ordered.length && i < element.notes.length; i++) {
+        var tpc = tpcFromPitch(ordered[i].input)
+        if (tpc === null)
+            continue
+        var note = element.notes[i]
+        if (note.tpc !== undefined) note.tpc = tpc
+        if (note.tpc1 !== undefined) note.tpc1 = tpc
+        if (note.tpc2 !== undefined) note.tpc2 = tpc
+    }
+}
+
+function dynamicTextMarkup(value) {
+    if (typeof value !== "string")
+        return DYNAMIC_MARKUP["mf"]
+    var normalized = value.trim().toLowerCase()
+    return DYNAMIC_MARKUP[normalized] || value
+}
+
 // "C4" -> 60, "F#5" -> 78, "Bb3" -> 58
 function pitchFromName(name) {
-    var noteMap = { "C":0,"D":2,"E":4,"F":5,"G":7,"A":9,"B":11 }
-    var match = name.match(/^([A-Ga-g])(#{0,2}|b{0,2})(\d+)$/)
-    if (!match) return 60
-    var pitch = noteMap[match[1].toUpperCase()] + (parseInt(match[3]) + 1) * 12
-    for (var i = 0; i < match[2].length; i++)
-        pitch += (match[2][i] === '#') ? 1 : -1
-    return pitch
+    var spec = parsePitchSpec(name)
+    return spec ? spec.midi : 60
 }
 
 function pitchToName(pitch) {
@@ -152,8 +290,10 @@ function createWriter(score, staffIdx, voice) {
         },
         note: function(pitch, durName, dots) {
             var dur = durationFraction(durName, dots)
+            var startTick = cursor.tick
             cursor.setDuration(dur[0], dur[1])
             cursor.addNote(resolvePitch(pitch))
+            applyPitchSpellings(cursor, startTick, [pitch])
         },
         chord: function(pitches, durName, dots) {
             if (!pitches || pitches.length === 0) return
@@ -165,6 +305,7 @@ function createWriter(score, staffIdx, voice) {
                 cursor.rewindToTick(saveTick)
                 cursor.addNote(resolvePitch(pitches[i]), true)
             }
+            applyPitchSpellings(cursor, saveTick, pitches)
         },
         rest: function(durName, dots) {
             var dur = durationFraction(durName, dots)
@@ -212,6 +353,7 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
         var dur = durationFraction(cmd.duration || "quarter", cmd.dots || 0)
         cursor.setDuration(dur[0], dur[1])
         cursor.addNote(resolvePitch(cmd.pitch))
+        applyPitchSpellings(cursor, tick, [cmd.pitch])
         return { ok: true }
     }
 
@@ -227,6 +369,7 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
             cursor.rewindToTick(tick)
             cursor.addNote(resolvePitch(pitches[j]), true)
         }
+        applyPitchSpellings(cursor, tick, pitches)
         return { ok: true }
     }
 
@@ -260,7 +403,7 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
             } else if (ev.pitches) {
                 w.chord(ev.pitches, ev.duration || "quarter", ev.dots || 0)
             } else {
-                w.note(resolvePitch(ev.pitch), ev.duration || "quarter", ev.dots || 0)
+                w.note(ev.pitch, ev.duration || "quarter", ev.dots || 0)
             }
         }
         return { ok: true }
@@ -395,15 +538,17 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
 
     case "addDynamic": {
         if (!newEl) return { ok: false, error: "Missing newElement" }
+        var dynamicText = (cmd.text || "mf")
+        var normalizedDynamic = typeof dynamicText === "string" ? dynamicText.trim().toLowerCase() : "mf"
         var dyn = newEl(ET.DYNAMIC)
-        dyn.text = cmd.text || "mf"
+        dyn.text = dynamicTextMarkup(dynamicText)
         var veloMap = {
             "pppp":10,"ppp":25,"pp":36,"p":49,"mp":64,"mf":80,
             "f":96,"ff":112,"fff":120,"ffff":126,
             "fp":96,"sfz":112,"sf":112,"fz":112,"rfz":112,
             "sfp":49,"sffz":126,"fpp":36
         }
-        if (veloMap[cmd.text]) dyn.velocity = veloMap[cmd.text]
+        if (veloMap[normalizedDynamic]) dyn.velocity = veloMap[normalizedDynamic]
         cursor.staffIdx = staffIdx; cursor.voice = 0
         cursor.rewindToTick(tick)
         cursor.add(dyn)

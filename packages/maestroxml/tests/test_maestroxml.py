@@ -459,6 +459,20 @@ class MaestroXMLTests(unittest.TestCase):
             actions,
         )
 
+    def test_bridge_output_simplifies_double_accidentals(self) -> None:
+        score = Score(title="Spelling")
+        flute = score.add_part("Flute", instrument="flute")
+        score.measure(1)
+        flute.note("quarter", "E##4")
+        flute.note("quarter", "Abb4")
+        flute.note("quarter", "Cn4")
+
+        note_actions = [action for action in score.to_actions() if action["kind"] == "add_note"]
+        self.assertEqual(
+            [action["pitch"] for action in note_actions],
+            ["F#4", "G4", "C4"],
+        )
+
     def test_musicxml_string_to_python_recreates_hello_world_builder(self) -> None:
         xml_text = self.golden("hello_world.musicxml")
         code = musicxml_string_to_python(xml_text)

@@ -49,7 +49,7 @@ MuseScore {
 
     Timer {
         id: bridgePoller
-        interval: 200
+        interval: 10
         repeat: true
         running: true
         onTriggered: pollBridge()
