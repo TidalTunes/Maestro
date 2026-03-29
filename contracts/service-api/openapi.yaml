@@ -1,0 +1,76 @@
+openapi: 3.1.0
+info:
+  title: Maestro Service API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8000
+paths:
+  /api/generate:
+    post:
+      summary: Generate Python and MusicXML from a prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./schemas/generate-request.json"
+      responses:
+        "200":
+          description: Successful generation
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/generate-response.json"
+        "422":
+          description: Generation error
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/error-response.json"
+  /api/humming/start:
+    post:
+      summary: Start recording humming input
+      responses:
+        "200":
+          description: Recording started
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/humming-start-response.json"
+        "422":
+          description: Recording error
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/error-response.json"
+  /api/humming/stop:
+    post:
+      summary: Stop recording and transcribe humming input
+      responses:
+        "200":
+          description: Recording stopped
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/humming-stop-response.json"
+        "422":
+          description: Recording error
+          content:
+            application/json:
+              schema:
+                $ref: "./schemas/error-response.json"
+  /healthz:
+    get:
+      summary: Healthcheck
+      responses:
+        "200":
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]

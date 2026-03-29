@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HummingStopResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "recording": { "type": "boolean" },
+    "hummed_notes": { "type": "string" },
+    "status": { "type": "string" }
+  },
+  "required": ["recording", "hummed_notes", "status"]
+}

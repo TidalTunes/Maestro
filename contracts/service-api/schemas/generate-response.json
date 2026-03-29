@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GenerateResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filename": { "type": "string" },
+    "python_code": { "type": "string" },
+    "musicxml": { "type": "string" }
+  },
+  "required": ["filename", "python_code", "musicxml"]
+}
