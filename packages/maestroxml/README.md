@@ -1,12 +1,12 @@
 # maestroxml
 
-`maestroxml` is a Python-first score builder for MuseScore.
+`maestroxml` is a Python-first score builder and change-plan layer for MuseScore.
 
-You still compose with the same `Score` / `Part` / `voice(...)` API, but the package now targets the local `maestro-musescore-bridge` package instead of emitting MusicXML. It can also import MusicXML into editable Python so an existing score can become a clean `maestroxml` script.
+You still compose with the same `Score` / `Part` / `voice(...)` API, but the package now targets the local `maestro-musescore-bridge` package instead of emitting MusicXML. It can also import MusicXML into editable Python so an existing score can become readable `maestroxml` reference code.
 
 ## What It Does
 
-- builds score edits with a simple composition-oriented API
+- builds full score plans and live change plans with a simple composition-oriented API
 - turns those edits into `maestro-musescore-bridge` action payloads
 - applies those actions to a live MuseScore score through the bridge plugin
 - writes action-plan JSON for inspection or debugging
@@ -37,6 +37,16 @@ result = score.apply()
 `write(path)` writes that JSON action plan to disk.
 
 `apply()` sends the action plan to MuseScore through `maestro-musescore-bridge`.
+
+## Live Editing Existing Scores
+
+When you already have a live score open in MuseScore, treat imported `maestroxml` code as reference context, not as something to replay verbatim.
+
+- Use the imported part, voice, and measure layout to understand the current score.
+- Build a change plan that adds only the requested notes, rests, chords, directions, measures, or parts.
+- Export those changes as delta actions relative to the existing score.
+
+In other words: `to_actions()` materializes a full plan, while live-edit runtimes should clone the existing score's shell and emit only the delta with `to_delta_actions(base_score)`.
 
 ## MuseScore Setup
 

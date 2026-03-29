@@ -64,6 +64,20 @@ class MuseScoreBridgeClient:
     def read_score(self) -> Mapping[str, Any]:
         return self.request("read_score")
 
+    def export_musicxml(self) -> Mapping[str, Any]:
+        result = self.request("export_musicxml")
+        exported_path = result.get("path")
+        if not isinstance(exported_path, str) or not exported_path.strip():
+            raise BridgeResponseError(
+                "Bridge did not return a MusicXML export path.",
+                {
+                    "ok": False,
+                    "error": "Missing export path",
+                    "result": dict(result),
+                },
+            )
+        return result
+
     def apply_actions(
         self,
         actions: Iterable[Mapping[str, Any] | ScoreAction],

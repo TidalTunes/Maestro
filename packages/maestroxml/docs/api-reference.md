@@ -167,6 +167,9 @@ actions = score.to_actions(
 
 Returns a list of action dictionaries suitable for `maestro-musescore-bridge`.
 
+Use this when you want to materialize the full planned score or an append-only plan.
+For live edits against an existing score, prefer `clone_shell()` plus `to_delta_actions(base_score)`.
+
 Arguments:
 
 - `include_structure`:
@@ -175,6 +178,41 @@ Arguments:
 - `ignore_unsupported`:
   - when `True`, unsupported features are skipped or approximated
   - when `False`, `ValueError` is raised if unsupported features are present
+
+### `clone_shell()`
+
+```python
+edit_score = score.clone_shell()
+```
+
+Returns a blank `Score` with the same metadata, parts, measures, and score-level time/key state as `score`, but without existing note or direction events.
+
+This is the preferred starting point for live score edits.
+
+### `to_delta_actions(...)`
+
+```python
+actions = edit_score.to_delta_actions(
+    base_score,
+    ignore_unsupported=True,
+)
+```
+
+Returns only the bridge actions introduced by `edit_score` relative to `base_score`.
+
+Typical live-edit pattern:
+
+1. Load or build `base_score` as reference context.
+2. Call `base_score.clone_shell()`.
+3. Add only the requested changes to the cloned shell.
+4. Call `to_delta_actions(base_score)` and send those actions through the bridge.
+
+Rules:
+
+- `edit_score` must keep the existing part order and existing staff counts intact.
+- `edit_score` may append new parts or extra measures.
+- `edit_score` may add notes, rests, chords, directions, time signatures, and key signatures.
+- Removing existing parts or measures is not supported by this delta planner.
 
 ### `to_batch(...)`
 

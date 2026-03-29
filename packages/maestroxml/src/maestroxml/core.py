@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -876,18 +877,108 @@ class Score:
 
     def _append_structure_actions(self, actions: list[dict[str, Any]]) -> None:
         for part in self.parts[1:]:
-            payload: dict[str, Any] = {"kind": "add_part"}
-            if part.bridge_instrument_id:
-                payload["instrumentId"] = part.bridge_instrument_id
-            elif part.bridge_musicxml_id:
-                payload["musicXmlId"] = part.bridge_musicxml_id
-            else:
-                payload["instrumentId"] = "piano"
-            actions.append(payload)
+            actions.append(self._part_append_action(part))
 
         additional_measures = max(0, self._max_measure - 1)
         if additional_measures:
             actions.append({"kind": "append_measures", "count": additional_measures})
+
+    @staticmethod
+    def _part_append_action(part: Part) -> dict[str, Any]:
+        payload: dict[str, Any] = {"kind": "add_part"}
+        if part.bridge_instrument_id:
+            payload["instrumentId"] = part.bridge_instrument_id
+        elif part.bridge_musicxml_id:
+            payload["musicXmlId"] = part.bridge_musicxml_id
+        else:
+            payload["instrumentId"] = "piano"
+        return payload
+
+    def clone_shell(self) -> Score:
+        cloned = Score(
+            title=self.title,
+            composer=self.composer,
+            lyricist=self.lyricist,
+            rights=self.rights,
+        )
+
+        for part in self.parts:
+            clefs = tuple(
+                (part.initial_clefs.get(staff) or Clef(*CLEF_PRESETS["treble"]))
+                for staff in range(1, part.staves + 1)
+            )
+            clone_part = cloned.add_part(
+                part.name,
+                instrument=part.bridge_instrument_id or part.bridge_musicxml_id or part.name,
+                abbreviation=part.abbreviation,
+                staves=part.staves,
+                clefs=((clef.sign, clef.line) for clef in clefs),
+            )
+            clone_part.bridge_instrument_id = part.bridge_instrument_id
+            clone_part.bridge_musicxml_id = part.bridge_musicxml_id
+            clone_part.instrument_name = part.instrument_name
+
+        for measure_number in range(1, self._max_measure + 1):
+            cloned.measure(measure_number)
+            time_signature = self._time_changes.get(measure_number)
+            if time_signature is not None:
+                cloned.time_signature(time_signature)
+            key_signature = self._key_changes.get(measure_number)
+            if key_signature is not None:
+                cloned.key_signature(key_signature[0], mode=key_signature[1])
+
+        return cloned
+
+    def to_delta_actions(
+        self,
+        base_score: Score,
+        *,
+        ignore_unsupported: bool = True,
+    ) -> list[dict[str, Any]]:
+        if len(self.parts) < len(base_score.parts):
+            raise ValueError("Live edit scores cannot remove existing parts.")
+        if self._max_measure < base_score._max_measure:
+            raise ValueError("Live edit scores cannot remove existing measures.")
+
+        for index, base_part in enumerate(base_score.parts):
+            current_part = self.parts[index]
+            if current_part.staves != base_part.staves:
+                raise ValueError("Live edit scores cannot change existing part staff counts.")
+            if current_part.bridge_instrument_id != base_part.bridge_instrument_id:
+                raise ValueError("Live edit scores cannot replace existing part instruments.")
+            if current_part.bridge_musicxml_id != base_part.bridge_musicxml_id:
+                raise ValueError("Live edit scores cannot replace existing part MusicXML ids.")
+
+        current_actions = self.to_actions(
+            include_structure=False,
+            ignore_unsupported=ignore_unsupported,
+        )
+        base_actions = base_score.to_actions(
+            include_structure=False,
+            ignore_unsupported=ignore_unsupported,
+        )
+
+        base_counts: Counter[str] = Counter(
+            json.dumps(action, sort_keys=True) for action in base_actions
+        )
+
+        delta_actions: list[dict[str, Any]] = []
+        extra_parts = self.parts[len(base_score.parts) :]
+        for part in extra_parts:
+            delta_actions.append(self._part_append_action(part))
+
+        extra_measures = max(0, self._max_measure - base_score._max_measure)
+        if extra_measures:
+            delta_actions.append({"kind": "append_measures", "count": extra_measures})
+
+        for action in current_actions:
+            key = json.dumps(action, sort_keys=True)
+            if base_counts[key]:
+                base_counts[key] -= 1
+                continue
+            delta_actions.append(action)
+
+        return delta_actions
 
     def _measure_start_ticks(self) -> dict[int, int]:
         ticks: dict[int, int] = {}

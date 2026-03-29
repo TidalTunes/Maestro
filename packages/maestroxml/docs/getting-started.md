@@ -6,6 +6,8 @@
 2. Convert it to bridge actions with `to_actions()`.
 3. Apply those actions to a live MuseScore score with `apply()`.
 
+For existing live scores, the pattern is slightly different: use imported `maestroxml` code as reference, build only the requested change plan, and export only the delta actions.
+
 For the full method list, see [API Reference](api-reference.md). For longer examples, see [Examples](examples.md).
 
 ## 1. Create A Score
@@ -197,7 +199,27 @@ client = MuseScoreBridgeClient(timeout=20.0)
 score.apply(client, fail_on_partial=False)
 ```
 
-## 10. Start From Existing MusicXML
+## 10. Build Live Edit Deltas
+
+When you already have a score open in MuseScore, do not recreate the whole score just to add one note or dynamic.
+
+Use a shell cloned from the current score and emit only the new bridge actions:
+
+```python
+base_score = score_from_current_context
+edit_score = base_score.clone_shell()
+
+flute = edit_score.parts[0]
+edit_score.measure(8)
+flute.note("quarter", "G5")
+flute.dynamic("mf")
+
+actions = edit_score.to_delta_actions(base_score)
+```
+
+That keeps `maestroxml` in its natural role: score-shaped change planning that compiles into bridge actions.
+
+## 11. Start From Existing MusicXML
 
 The importer still accepts MusicXML and turns it into editable Python:
 
@@ -216,7 +238,7 @@ The generated code rebuilds the supported score content with the `maestroxml` AP
 
 `output_path` is optional. When provided, the generated code includes `score.write(...)`, which now writes the bridge action plan JSON rather than MusicXML.
 
-## 11. Current Backend Limits
+## 12. Current Backend Limits
 
 The builder API is a little broader than the current MuseScore bridge backend. Today these are not fully materialized:
 

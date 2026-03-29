@@ -5,26 +5,55 @@ Zed-style flat editorial layout. No bubbles, no rounded corners.
 """
 
 import sys
-import os
 import tempfile
 import wave
-import struct
-import math
-import random
 from dataclasses import dataclass
-from typing import Optional, List
 from enum import Enum
+from pathlib import Path
+from typing import List, Optional
 
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QScrollArea, QSizePolicy,
-    QGraphicsOpacityEffect, QSlider, QScroller, QScrollerProperties
-)
+ROOT_DIR = Path(__file__).resolve().parent
+FRONTEND_DESKTOP_SRC = ROOT_DIR / "apps" / "frontend-desktop" / "src"
+if str(FRONTEND_DESKTOP_SRC.resolve()) not in sys.path:
+    sys.path.insert(0, str(FRONTEND_DESKTOP_SRC.resolve()))
+
+from maestro_desktop.backend import DesktopAgentBackend
 from PyQt6.QtCore import (
-    Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QUrl
+    QEasingCurve,
+    QPropertyAnimation,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+    pyqtSignal,
 )
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QFontDatabase, QPainterPath, QPixmap, QMovie
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QMovie,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QScroller,
+    QScrollerProperties,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 # ============== CONFIGURATION ==============
 WINDOW_WIDTH = 420
@@ -36,8 +65,8 @@ SURFACE_COLOR = "#252525"
 INPUT_BG = "#2d2d2d"
 BORDER_COLOR = "#3a3a3a"
 ACCENT_COLOR = "#3daee9"
-USER_LABEL_COLOR = "#5dd9a0"      # Green for "you"
-AI_LABEL_COLOR = "#869bed"        # Light purple for "maestro"
+USER_LABEL_COLOR = "#5dd9a0"  # Green for "you"
+AI_LABEL_COLOR = "#869bed"  # Light purple for "maestro"
 TEXT_PRIMARY = "#e0e0e0"
 TEXT_SECONDARY = "#707070"
 RECORDING_COLOR = "#c04040"
@@ -70,10 +99,93 @@ class Message:
     duration: float = 0.0
 
 
-class LoadingAnimation(QWidget):
-    """Animated loading using 6x6 sprite sheet with random status text."""
+RECORD_SAMPLE_RATE = 16_000
 
-    SPRITE_PATH = "/Users/akup6/Maestro/images/animation-sequence.png"
+
+class MicrophoneRecorder:
+    """Capture mono float32 audio from the default microphone."""
+
+    def __init__(self, sample_rate: int = RECORD_SAMPLE_RATE) -> None:
+        self.sample_rate = sample_rate
+        self._frames = []
+        self._numpy = None
+        self._stream = None
+
+    def start(self) -> None:
+        if self._stream is not None:
+            raise RuntimeError("Recording is already in progress.")
+
+        try:
+            import numpy as np
+            import sounddevice as sounddevice
+        except ImportError as exc:
+            raise RuntimeError(
+                "Microphone recording requires the optional 'sounddevice' package. "
+                "Install the humming-detector dependencies first."
+            ) from exc
+
+        self._numpy = np
+        self._frames = []
+
+        def callback(indata, frames: int, time_info: object, status: object) -> None:
+            del frames, time_info
+            if status:
+                print(f"sounddevice status: {status}", file=sys.stderr)
+            self._frames.append(indata.copy())
+
+        self._stream = sounddevice.InputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            callback=callback,
+        )
+        self._stream.start()
+
+    def stop(self):
+        if self._stream is None:
+            raise RuntimeError("Recording is not in progress.")
+
+        stream = self._stream
+        self._stream = None
+
+        try:
+            stream.stop()
+        finally:
+            stream.close()
+
+        np = self._numpy
+        if np is None:
+            raise RuntimeError("Recording backend was not initialized correctly.")
+
+        if not self._frames:
+            return np.zeros(0, dtype=np.float32)
+
+        audio = np.concatenate(self._frames, axis=0).reshape(-1)
+        return audio.astype(np.float32, copy=False)
+
+
+def write_wav_file(audio, sample_rate: int = RECORD_SAMPLE_RATE) -> Path:
+    import numpy as np
+
+    clipped = np.clip(audio, -1.0, 1.0)
+    pcm = (clipped * 32767.0).astype(np.int16)
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+        path = Path(handle.name)
+
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm.tobytes())
+
+    return path
+
+
+class LoadingAnimation(QWidget):
+    """Animated loading using a 6x6 sprite sheet with rotating status text."""
+
+    SPRITE_PATH = Path(__file__).resolve().parent / "images" / "animation-sequence.png"
     GRID_SIZE = 6  # 6x6 grid = 36 frames
     DISPLAY_SIZE = 80
 
@@ -93,10 +205,13 @@ class LoadingAnimation(QWidget):
         self._frame_index = 0
         self._direction = 1  # 1 = forward, -1 = reverse
         self._dot_count = 0
+        self._phrase_index = 0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._next_frame)
         self._dot_timer = QTimer(self)
         self._dot_timer.timeout.connect(self._update_dots)
+        self._phrase_timer = QTimer(self)
+        self._phrase_timer.timeout.connect(self._rotate_phrase)
 
         self.setStyleSheet("background: transparent;")
 
@@ -113,7 +228,7 @@ class LoadingAnimation(QWidget):
         layout.addSpacing(12)
 
         # Status text
-        self._phrase = random.choice(self.THINKING_PHRASES)
+        self._phrase = self.THINKING_PHRASES[self._phrase_index]
         self._status = QLabel(f"{self._phrase}...")
         self._status.setStyleSheet(f"""
             color: {TEXT_SECONDARY};
@@ -125,7 +240,7 @@ class LoadingAnimation(QWidget):
 
         # Load sprite sheet and slice into frames
         self._frames = []
-        sprite_sheet = QPixmap(self.SPRITE_PATH)
+        sprite_sheet = QPixmap(str(self.SPRITE_PATH))
 
         if not sprite_sheet.isNull():
             frame_w = sprite_sheet.width() // self.GRID_SIZE
@@ -135,14 +250,14 @@ class LoadingAnimation(QWidget):
             for row in range(self.GRID_SIZE):
                 for col in range(self.GRID_SIZE):
                     frame = sprite_sheet.copy(
-                        col * frame_w, row * frame_h,
-                        frame_w, frame_h
+                        col * frame_w, row * frame_h, frame_w, frame_h
                     )
                     # Scale to display size
                     frame = frame.scaled(
-                        self.DISPLAY_SIZE, self.DISPLAY_SIZE,
+                        self.DISPLAY_SIZE,
+                        self.DISPLAY_SIZE,
                         Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation
+                        Qt.TransformationMode.SmoothTransformation,
                     )
                     self._frames.append(frame)
 
@@ -152,25 +267,36 @@ class LoadingAnimation(QWidget):
         if self._frames:
             self._sprite.setPixmap(self._frames[self._frame_index])
 
-    def _update_dots(self):
-        self._dot_count = (self._dot_count + 1) % 4
+    def _refresh_status(self):
         dots = "." * self._dot_count
         spaces = " " * (3 - self._dot_count)
         self._status.setText(f"{self._phrase}{dots}{spaces}")
 
+    def _update_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        self._refresh_status()
+
+    def _rotate_phrase(self):
+        self._phrase_index = (self._phrase_index + 1) % len(self.THINKING_PHRASES)
+        self._phrase = self.THINKING_PHRASES[self._phrase_index]
+        self._refresh_status()
+
     def start(self):
         self._frame_index = 0
         self._direction = 1
-        self._phrase = random.choice(self.THINKING_PHRASES)
+        self._phrase_index = 0
+        self._phrase = self.THINKING_PHRASES[self._phrase_index]
         self._dot_count = 0
         self._update_frame()
         self._update_dots()
         self._timer.start(50)  # ~20 FPS for smooth animation
         self._dot_timer.start(400)  # Dot animation
+        self._phrase_timer.start(3000)  # Rotate status text every 3 seconds
 
     def stop(self):
         self._timer.stop()
         self._dot_timer.stop()
+        self._phrase_timer.stop()
 
     def _next_frame(self):
         if self._frames:
@@ -252,14 +378,17 @@ class AudioPlayer(QFrame):
         mins = int(duration) // 60
         secs = int(duration) % 60
         self.duration_label = QLabel(f"{mins}:{secs:02d}")
-        self.duration_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;")
+        self.duration_label.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
+        )
         layout.addWidget(self.duration_label)
 
         # Media player
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()
+        self.audio_output.setVolume(1.0)
         self.player.setAudioOutput(self.audio_output)
-        self.player.setSource(QUrl.fromLocalFile(audio_path))
+        self.player.setSource(QUrl.fromLocalFile(str(Path(audio_path).resolve())))
         self.player.positionChanged.connect(self._on_position)
         self.player.mediaStatusChanged.connect(self._on_status)
 
@@ -381,7 +510,7 @@ class MessageWidget(QWidget):
             layout.addWidget(text)
 
     def stop_loading(self):
-        if hasattr(self, 'loading_anim'):
+        if hasattr(self, "loading_anim"):
             self.loading_anim.stop()
 
 
@@ -407,8 +536,12 @@ class IdleAnimation(QLabel):
         for path in self.FRAME_PATHS:
             pixmap = QPixmap(path)
             if not pixmap.isNull():
-                pixmap = pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
-                                       Qt.TransformationMode.SmoothTransformation)
+                pixmap = pixmap.scaled(
+                    size,
+                    size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
             self._frames.append(pixmap)
 
         self.setStyleSheet("background: transparent;")
@@ -455,8 +588,12 @@ class WatermarkLogo(QWidget):
         for path in self.IDLE_FRAMES:
             pixmap = QPixmap(path)
             if not pixmap.isNull():
-                pixmap = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio,
-                                       Qt.TransformationMode.SmoothTransformation)
+                pixmap = pixmap.scaled(
+                    80,
+                    80,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
             self._frames.append(pixmap)
 
         layout = QVBoxLayout(self)
@@ -503,7 +640,9 @@ class WatermarkLogo(QWidget):
         """Update label styles with current opacity."""
         color = f"rgba(112, 112, 112, {self._opacity})"
         self.logo.setStyleSheet(f"background: transparent;")
-        self.title.setStyleSheet(f"color: {color}; font-size: 14px; letter-spacing: 4px; background: transparent;")
+        self.title.setStyleSheet(
+            f"color: {color}; font-size: 14px; letter-spacing: 4px; background: transparent;"
+        )
 
     def _fade_step(self):
         """Manual fade step."""
@@ -559,11 +698,17 @@ class ConversationArea(QScrollArea):
         self.setWidget(self.container)
 
         # Enable tension/elastic scrolling
-        QScroller.grabGesture(self.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+        QScroller.grabGesture(
+            self.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture
+        )
         scroller = QScroller.scroller(self.viewport())
         props = scroller.scrollerProperties()
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.OvershootDragResistanceFactor, 0.3)
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.OvershootScrollDistanceFactor, 0.2)
+        props.setScrollMetric(
+            QScrollerProperties.ScrollMetric.OvershootDragResistanceFactor, 0.3
+        )
+        props.setScrollMetric(
+            QScrollerProperties.ScrollMetric.OvershootScrollDistanceFactor, 0.2
+        )
         props.setScrollMetric(QScrollerProperties.ScrollMetric.OvershootScrollTime, 0.3)
         scroller.setScrollerProperties(props)
 
@@ -865,7 +1010,9 @@ class AudioPreviewBar(QFrame):
         mins = int(duration) // 60
         secs = int(duration) % 60
         self.duration_label = QLabel(f"{mins}:{secs:02d}")
-        self.duration_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;")
+        self.duration_label.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
+        )
         layout.addWidget(self.duration_label)
 
         # Delete button
@@ -887,8 +1034,9 @@ class AudioPreviewBar(QFrame):
         # Media player
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()
+        self.audio_output.setVolume(1.0)
         self.player.setAudioOutput(self.audio_output)
-        self.player.setSource(QUrl.fromLocalFile(audio_path))
+        self.player.setSource(QUrl.fromLocalFile(str(Path(audio_path).resolve())))
         self.player.positionChanged.connect(self._on_position)
         self.player.mediaStatusChanged.connect(self._on_status)
 
@@ -953,6 +1101,23 @@ class AudioPreviewBar(QFrame):
         self.slide_out(lambda: self.deleted.emit())
 
 
+class BackgroundTaskThread(QThread):
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self._callback = callback
+
+    def run(self):
+        try:
+            result = self._callback()
+        except Exception as exc:
+            self.failed.emit(exc)
+            return
+        self.succeeded.emit(result)
+
+
 class InputSection(QFrame):
     """Input section with audio preview and input bar."""
 
@@ -963,6 +1128,7 @@ class InputSection(QFrame):
         self._recording = False
         self._record_ticks = 0
         self._temp_path = None
+        self._recorder = None
         self._pending_audio = None  # (path, duration)
 
         self.setStyleSheet("background: transparent;")
@@ -1001,7 +1167,7 @@ class InputSection(QFrame):
 
         # Text input
         self.text_input = QLineEdit()
-        self.text_input.setPlaceholderText("Describe changes...")
+        self.text_input.setPlaceholderText("Describe changes to the score...")
         self.text_input.setFixedHeight(40)
         self.text_input.setStyleSheet(f"""
             QLineEdit {{
@@ -1075,8 +1241,7 @@ class InputSection(QFrame):
     def _update_send_btn_state(self):
         """Enable/disable send button based on input state."""
         has_text = bool(self.text_input.text().strip())
-        has_audio = self._pending_audio is not None
-        can_send = (has_text or has_audio) and not self._waiting
+        can_send = has_text and not self._waiting
         self.send_btn.setEnabled(can_send)
         self._update_send_btn_style()
 
@@ -1096,16 +1261,21 @@ class InputSection(QFrame):
         # Show preparing state with spinner
         self.mic_btn.set_preparing()
 
-        self._temp_path = os.path.join(
-            tempfile.gettempdir(),
-            f"maestro_rec_{id(self)}.wav"
-        )
-
         # Simulate setup delay, then start actual recording
         QTimer.singleShot(400, self._begin_recording)
 
     def _begin_recording(self):
         """Actually start recording after preparation."""
+        try:
+            recorder = MicrophoneRecorder(sample_rate=RECORD_SAMPLE_RATE)
+            recorder.start()
+        except Exception as exc:
+            self._recorder = None
+            self.mic_btn.set_recording(False)
+            print(f"Microphone recording unavailable: {exc}", file=sys.stderr)
+            return
+
+        self._recorder = recorder
         self._recording = True
         self._record_ticks = 0
         self.mic_btn.set_recording(True)
@@ -1118,8 +1288,32 @@ class InputSection(QFrame):
         # Show preparing spinner while processing
         self.mic_btn.set_preparing()
 
-        duration = max(0.5, self._record_ticks * 0.5)
-        self._create_audio(duration)
+        recorder = self._recorder
+        self._recorder = None
+        if recorder is None:
+            self.mic_btn.set_recording(False)
+            return
+
+        try:
+            audio = recorder.stop()
+        except Exception as exc:
+            self.mic_btn.set_recording(False)
+            print(f"Failed to stop recording: {exc}", file=sys.stderr)
+            return
+
+        if getattr(audio, "size", 0) == 0:
+            self.mic_btn.set_recording(False)
+            return
+
+        try:
+            wav_path = write_wav_file(audio, sample_rate=RECORD_SAMPLE_RATE)
+        except Exception as exc:
+            self.mic_btn.set_recording(False)
+            print(f"Failed to write recording: {exc}", file=sys.stderr)
+            return
+
+        self._temp_path = str(wav_path)
+        duration = float(len(audio)) / float(RECORD_SAMPLE_RATE)
 
         # Delay to show processing, then show preview
         QTimer.singleShot(300, lambda: self._finish_recording(duration))
@@ -1128,7 +1322,7 @@ class InputSection(QFrame):
         """Finish recording and show preview."""
         self.mic_btn.set_recording(False)  # Back to idle
 
-        if self._temp_path and os.path.exists(self._temp_path):
+        if self._temp_path and Path(self._temp_path).exists():
             self._show_audio_preview(self._temp_path, duration)
 
     def _show_audio_preview(self, path: str, duration: float):
@@ -1151,26 +1345,8 @@ class InputSection(QFrame):
             self._audio_preview.deleteLater()
             self._audio_preview = None
         self._pending_audio = None
+        self._temp_path = None
         self._update_send_btn_state()
-
-    def _create_audio(self, duration: float):
-        """Create demo audio file."""
-        if not self._temp_path:
-            return
-
-        rate = 44100
-        samples = int(rate * duration)
-
-        with wave.open(self._temp_path, 'w') as f:
-            f.setnchannels(1)
-            f.setsampwidth(2)
-            f.setframerate(rate)
-
-            for i in range(samples):
-                t = i / rate
-                fade = min(1.0, min(t * 10, (duration - t) * 10))
-                val = int(fade * 6000 * math.sin(2 * math.pi * 440 * t))
-                f.writeframes(struct.pack('<h', val))
 
     def _on_rec_tick(self):
         self._record_ticks += 1
@@ -1183,8 +1359,7 @@ class InputSection(QFrame):
         if self._pending_audio:
             audio_path, audio_duration = self._pending_audio
 
-        # Need either text or audio
-        if not text and not audio_path:
+        if not text:
             return
 
         # Slide out audio preview if present
@@ -1209,6 +1384,8 @@ class MaestroWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.backend = DesktopAgentBackend()
+        self._tasks: list[BackgroundTaskThread] = []
         self._setup_window()
         self._setup_ui()
 
@@ -1217,13 +1394,13 @@ class MaestroWindow(QWidget):
         self.setMinimumSize(320, 400)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
 
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - WINDOW_WIDTH - 20,
-                  (screen.height() - WINDOW_HEIGHT) // 2)
+        self.move(
+            screen.width() - WINDOW_WIDTH - 20, (screen.height() - WINDOW_HEIGHT) // 2
+        )
 
         self._drag_pos = None
         self._resize_edge = None
@@ -1262,7 +1439,7 @@ class MaestroWindow(QWidget):
         # Window buttons
         for text, action, hover_color in [
             ("−", self.showMinimized, TEXT_PRIMARY),
-            ("×", self.close, RECORDING_COLOR)
+            ("×", self.close, RECORDING_COLOR),
         ]:
             btn = QPushButton(text)
             btn.setFixedSize(24, 24)
@@ -1293,6 +1470,20 @@ class MaestroWindow(QWidget):
         self.input_section.messageSubmitted.connect(self._on_submit)
         layout.addWidget(self.input_section)
 
+    def _start_task(self, callback, on_success, on_error):
+        task = BackgroundTaskThread(callback, self)
+        self._tasks.append(task)
+        task.succeeded.connect(on_success)
+        task.failed.connect(on_error)
+
+        def _cleanup():
+            if task in self._tasks:
+                self._tasks.remove(task)
+
+        task.finished.connect(_cleanup)
+        task.finished.connect(task.deleteLater)
+        task.start()
+
     def _on_submit(self, text: str, audio_path: str, audio_duration: float):
         # Add user message (with optional audio)
         if audio_path:
@@ -1300,7 +1491,7 @@ class MaestroWindow(QWidget):
                 type=MessageType.USER_AUDIO,
                 content=text,
                 audio_path=audio_path,
-                duration=audio_duration
+                duration=audio_duration,
             )
         else:
             msg = Message(type=MessageType.USER_TEXT, content=text)
@@ -1312,23 +1503,41 @@ class MaestroWindow(QWidget):
         self.conversation.add_message(loading)
 
         self.input_section.set_enabled(False)
+        self._start_task(
+            lambda: self.backend.apply_live_score_edit(text, audio_path=audio_path),
+            self._on_live_edit_success,
+            self._on_live_edit_error,
+        )
 
-        # Simulate response
-        QTimer.singleShot(5000, lambda: self._on_response(text or "[Audio message]"))
-
-    def _on_response(self, prompt: str):
+    def _on_live_edit_success(self, result: object):
         self.conversation.remove_loading()
+        action_count = int(getattr(result, "action_count", 0) or 0)
+        bridge_result = getattr(result, "bridge_result", {}) or {}
+        all_ok = bool(bridge_result.get("all_ok", True))
 
-        response = self.on_prompt_submit(prompt)
-        msg = Message(type=MessageType.AI_TEXT, content=response)
-        self.conversation.add_message(msg)
+        status = f"Applied {action_count} action{'s' if action_count != 1 else ''} to the open score."
+        if not all_ok:
+            status += "\n\nMuseScore reported partial failures. Inspect the bridge result."
 
+        hummed_notes = str(getattr(result, "hummed_notes", "") or "").strip()
+        if hummed_notes:
+            status += "\n\nHummed input was used."
+
+        self.conversation.add_message(Message(type=MessageType.AI_TEXT, content=status))
         self.input_section.set_enabled(True)
         self.input_section.text_input.setFocus()
 
-    def on_prompt_submit(self, prompt: str) -> str:
-        """Override to connect AI backend."""
-        return f"Changes applied to measures 4-8 based on your request.\n\nThe melody has been modified with new articulation and dynamics."
+    def _on_live_edit_error(self, exc: object):
+        self.conversation.remove_loading()
+
+        message = str(exc)
+        python_code = getattr(exc, "python_code", "")
+        if python_code:
+            message = f"{message}\n\nGenerated edit code:\n{python_code}"
+
+        self.conversation.add_message(Message(type=MessageType.AI_TEXT, content=message))
+        self.input_section.set_enabled(True)
+        self.input_section.text_input.setFocus()
 
     # Drag and resize handling
     def _get_resize_edge(self, pos):
@@ -1339,13 +1548,13 @@ class MaestroWindow(QWidget):
 
         edges = []
         if x < m:
-            edges.append('left')
+            edges.append("left")
         elif x > w - m:
-            edges.append('right')
+            edges.append("right")
         if y < m:
-            edges.append('top')
+            edges.append("top")
         elif y > h - m:
-            edges.append('bottom')
+            edges.append("bottom")
 
         return tuple(edges) if edges else None
 
@@ -1366,13 +1575,13 @@ class MaestroWindow(QWidget):
         # Update cursor based on position
         if event.buttons() == Qt.MouseButton.NoButton:
             edge = self._get_resize_edge(pos)
-            if edge in [('left',), ('right',)]:
+            if edge in [("left",), ("right",)]:
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
-            elif edge in [('top',), ('bottom',)]:
+            elif edge in [("top",), ("bottom",)]:
                 self.setCursor(Qt.CursorShape.SizeVerCursor)
-            elif edge in [('left', 'top'), ('right', 'bottom')]:
+            elif edge in [("left", "top"), ("right", "bottom")]:
                 self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-            elif edge in [('right', 'top'), ('left', 'bottom')]:
+            elif edge in [("right", "top"), ("left", "bottom")]:
                 self.setCursor(Qt.CursorShape.SizeBDiagCursor)
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -1388,15 +1597,15 @@ class MaestroWindow(QWidget):
                 geo = self.geometry()
                 min_w, min_h = self.minimumWidth(), self.minimumHeight()
 
-                if 'right' in self._resize_edge:
+                if "right" in self._resize_edge:
                     geo.setWidth(max(min_w, geo.width() + delta.x()))
-                if 'bottom' in self._resize_edge:
+                if "bottom" in self._resize_edge:
                     geo.setHeight(max(min_h, geo.height() + delta.y()))
-                if 'left' in self._resize_edge:
+                if "left" in self._resize_edge:
                     new_w = max(min_w, geo.width() - delta.x())
                     if new_w != geo.width():
                         geo.setLeft(geo.left() + delta.x())
-                if 'top' in self._resize_edge:
+                if "top" in self._resize_edge:
                     new_h = max(min_h, geo.height() - delta.y())
                     if new_h != geo.height():
                         geo.setTop(geo.top() + delta.y())
@@ -1417,7 +1626,14 @@ def main():
 
     # Try to load clean sans-serif fonts (Claude-style)
     available_fonts = QFontDatabase.families()
-    for font_name in [".AppleSystemUIFont", "Helvetica Neue", "SF Pro", "Inter", "Helvetica", "Arial"]:
+    for font_name in [
+        ".AppleSystemUIFont",
+        "Helvetica Neue",
+        "SF Pro",
+        "Inter",
+        "Helvetica",
+        "Arial",
+    ]:
         if font_name in available_fonts:
             UI_FONT = font_name
             app.setFont(QFont(font_name, UI_FONT_SIZE))

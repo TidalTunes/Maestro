@@ -74,6 +74,15 @@ class FakeBridgeWorker:
             base["error"] = "No score is open"
             return base
 
+        if operation == "export_musicxml":
+            export_path = self.bridge_dir / f"score-{request_id}.musicxml"
+            export_path.write_text("<score-partwise/>", encoding="utf-8")
+            base["result"] = {
+                "path": str(export_path),
+                "format": "musicxml",
+            }
+            return base
+
         if operation == "apply_actions":
             results = []
             for action in request.get("actions", []):
@@ -150,6 +159,21 @@ class MuseScoreBridgeTests(unittest.TestCase):
                     client.score_info()
             finally:
                 worker.stop()
+
+    def test_client_can_export_musicxml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge_dir = Path(tmp)
+            worker = FakeBridgeWorker(bridge_dir)
+            worker.start()
+            try:
+                client = MuseScoreBridgeClient(bridge_dir=bridge_dir, timeout=1.0, poll_interval=0.01)
+                result = client.export_musicxml()
+                self.assertTrue(Path(result["path"]).is_file())
+            finally:
+                worker.stop()
+
+        self.assertEqual(result["format"], "musicxml")
+        self.assertTrue(result["path"].endswith(".musicxml"))
 
 
 if __name__ == "__main__":

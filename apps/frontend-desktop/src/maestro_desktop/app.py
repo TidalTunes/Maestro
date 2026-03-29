@@ -4,12 +4,9 @@ Maestro - AI Compose Assistant for MuseScore
 Zed-style flat editorial layout. No bubbles, no rounded corners.
 """
 
+from pathlib import Path
 import sys
 import os
-import tempfile
-import wave
-import struct
-import math
 from dataclasses import dataclass
 from typing import Optional, List
 from enum import Enum
@@ -17,13 +14,16 @@ from enum import Enum
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QScrollArea, QSizePolicy,
-    QGraphicsOpacityEffect, QSlider, QScroller, QScrollerProperties
+    QGraphicsOpacityEffect, QSlider, QScroller, QScrollerProperties,
+    QPlainTextEdit
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QUrl
+    Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QUrl, QThread
 )
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QFontDatabase, QPainterPath
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+
+from .backend import CapturedHumming, DesktopAgentBackend
 
 # ============== CONFIGURATION ==============
 WINDOW_WIDTH = 420
@@ -56,8 +56,8 @@ SLIDE_DURATION = 250
 
 class MessageType(Enum):
     USER_TEXT = "user_text"
-    USER_AUDIO = "user_audio"
     AI_TEXT = "ai_text"
+    AI_CODE = "ai_code"
     LOADING = "loading"
 
 
@@ -236,7 +236,7 @@ class MessageWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        is_user = self.message.type in (MessageType.USER_TEXT, MessageType.USER_AUDIO)
+        is_user = self.message.type == MessageType.USER_TEXT
         is_loading = self.message.type == MessageType.LOADING
 
         # Speaker label
@@ -267,27 +267,23 @@ class MessageWidget(QWidget):
             layout.addWidget(self.loading_anim)
             self.loading_anim.start()
 
-        elif self.message.type == MessageType.USER_AUDIO:
-            # Audio player with extra spacing
-            if self.message.audio_path:
-                layout.addSpacing(4)
-                player = AudioPlayer(self.message.audio_path, self.message.duration)
-                player.setFixedWidth(280)
-                layout.addWidget(player)
-                layout.addSpacing(4)
-
-            # Text content if any
-            if self.message.content:
-                text = QLabel(self.message.content)
-                text.setWordWrap(True)
-                text.setStyleSheet(f"""
+        elif self.message.type == MessageType.AI_CODE:
+            code = QPlainTextEdit()
+            code.setReadOnly(True)
+            code.setPlainText(self.message.content)
+            code.setMinimumHeight(110)
+            code.setMaximumHeight(240)
+            code.setStyleSheet(f"""
+                QPlainTextEdit {{
+                    background-color: {INPUT_BG};
                     color: {TEXT_PRIMARY};
-                    font-size: {UI_FONT_SIZE}px;
-                    background: transparent;
-                    padding: 0px;
-                    margin: 0px;
-                """)
-                layout.addWidget(text)
+                    border: 2px solid {BORDER_COLOR};
+                    padding: 8px;
+                    font-family: Menlo, Monaco, 'Courier New', monospace;
+                    font-size: 12px;
+                }}
+            """)
+            layout.addWidget(code)
         else:
             # Plain text
             text = QLabel(self.message.content)
@@ -451,7 +447,7 @@ class ConversationArea(QScrollArea):
             self._has_messages = True
             self.watermark.fade_out()
 
-        is_user = message.type in (MessageType.USER_TEXT, MessageType.USER_AUDIO)
+        is_user = message.type == MessageType.USER_TEXT
 
         # Add divider before user message if last was AI response
         if is_user and self._last_was_ai:
@@ -790,17 +786,132 @@ class AudioPreviewBar(QFrame):
         self.slide_out(lambda: self.deleted.emit())
 
 
-class InputSection(QFrame):
-    """Input section with audio preview and input bar."""
+class HummedNotesBar(QFrame):
+    """Compact preview for transcribed humming notes."""
 
-    messageSubmitted = pyqtSignal(str, str, float)  # text, audio_path, duration
+    cleared = pyqtSignal()
+
+    def __init__(self, notes: str, parent=None):
+        super().__init__(parent)
+        self._target_height = 68
+
+        self.setFixedHeight(0)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {SURFACE_COLOR};
+                border-top: 1px solid {BORDER_COLOR};
+                border-bottom: 1px solid {BORDER_COLOR};
+            }}
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
+
+        label = QLabel("Hummed")
+        label.setStyleSheet(f"""
+            color: {AI_LABEL_COLOR};
+            font-size: {LABEL_FONT_SIZE}px;
+            font-weight: bold;
+        """)
+        layout.addWidget(label, 0, Qt.AlignmentFlag.AlignTop)
+
+        self.notes_label = QLabel(notes)
+        self.notes_label.setWordWrap(True)
+        self.notes_label.setStyleSheet(f"""
+            color: {TEXT_PRIMARY};
+            font-size: {LABEL_FONT_SIZE}px;
+            background: transparent;
+        """)
+        layout.addWidget(self.notes_label, 1)
+
+        clear_btn = QPushButton("×")
+        clear_btn.setFixedSize(24, 24)
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT_SECONDARY};
+                border: none;
+                font-size: 16px;
+            }}
+            QPushButton:hover {{ color: {RECORDING_COLOR}; }}
+        """)
+        clear_btn.clicked.connect(self._on_clear)
+        layout.addWidget(clear_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+    def set_notes(self, notes: str):
+        self.notes_label.setText(notes)
+
+    def slide_in(self):
+        self._anim = QPropertyAnimation(self, b"maximumHeight")
+        self._anim.setDuration(SLIDE_DURATION)
+        self._anim.setStartValue(0)
+        self._anim.setEndValue(self._target_height)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
+
+        self._anim2 = QPropertyAnimation(self, b"minimumHeight")
+        self._anim2.setDuration(SLIDE_DURATION)
+        self._anim2.setStartValue(0)
+        self._anim2.setEndValue(self._target_height)
+        self._anim2.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim2.start()
+
+    def slide_out(self, callback=None):
+        self._anim = QPropertyAnimation(self, b"maximumHeight")
+        self._anim.setDuration(SLIDE_DURATION)
+        self._anim.setStartValue(self._target_height)
+        self._anim.setEndValue(0)
+        self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        if callback:
+            self._anim.finished.connect(callback)
+        self._anim.start()
+
+        self._anim2 = QPropertyAnimation(self, b"minimumHeight")
+        self._anim2.setDuration(SLIDE_DURATION)
+        self._anim2.setStartValue(self._target_height)
+        self._anim2.setEndValue(0)
+        self._anim2.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._anim2.start()
+
+    def _on_clear(self):
+        self.cleared.emit()
+
+
+class BackgroundTaskThread(QThread):
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self._callback = callback
+
+    def run(self):
+        try:
+            result = self._callback()
+        except Exception as exc:
+            self.failed.emit(exc)
+            return
+        self.succeeded.emit(result)
+
+
+class InputSection(QFrame):
+    """Input section with API key, humming controls, and prompt entry."""
+
+    messageSubmitted = pyqtSignal(str, str, str)  # text, api_key, hummed_notes
+    recordStartRequested = pyqtSignal()
+    recordStopRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._recording = False
-        self._record_ticks = 0
-        self._temp_path = None
-        self._pending_audio = None  # (path, duration)
+        self._record_transition_pending = False
+        self._hummed_notes = ""
+        self._recorded_audio_path = ""
+        self._recorded_audio_duration = 0.0
+        self._audio_preview: Optional[AudioPreviewBar] = None
+        self._notes_preview: Optional[HummedNotesBar] = None
 
         self.setStyleSheet("background: transparent;")
 
@@ -808,7 +919,47 @@ class InputSection(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Audio preview area (empty initially)
+        self.credentials_bar = QFrame()
+        self.credentials_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {SURFACE_COLOR};
+                border-top: 1px solid {BORDER_COLOR};
+            }}
+        """)
+        credentials_layout = QHBoxLayout(self.credentials_bar)
+        credentials_layout.setContentsMargins(12, 10, 12, 10)
+        credentials_layout.setSpacing(8)
+
+        credentials_label = QLabel("KEY")
+        credentials_label.setStyleSheet(f"""
+            color: {TEXT_SECONDARY};
+            font-size: {LABEL_FONT_SIZE}px;
+            letter-spacing: 2px;
+        """)
+        credentials_layout.addWidget(credentials_label)
+
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setPlaceholderText("OpenAI API key")
+        self.api_key_input.setText(os.environ.get("OPENAI_API_KEY", "").strip())
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_input.setFixedHeight(34)
+        self.api_key_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {INPUT_BG};
+                color: {TEXT_PRIMARY};
+                border: 2px solid {BORDER_COLOR};
+                border-radius: 0px;
+                padding: 0 10px;
+                font-size: {LABEL_FONT_SIZE}px;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QLineEdit::placeholder {{ color: {TEXT_SECONDARY}; }}
+        """)
+        credentials_layout.addWidget(self.api_key_input, 1)
+        layout.addWidget(self.credentials_bar)
+
         self.audio_preview_container = QWidget()
         self.audio_preview_container.setStyleSheet("background: transparent;")
         self.audio_preview_layout = QVBoxLayout(self.audio_preview_container)
@@ -816,7 +967,12 @@ class InputSection(QFrame):
         self.audio_preview_layout.setSpacing(0)
         layout.addWidget(self.audio_preview_container)
 
-        self._audio_preview = None
+        self.notes_preview_container = QWidget()
+        self.notes_preview_container.setStyleSheet("background: transparent;")
+        self.notes_preview_layout = QVBoxLayout(self.notes_preview_container)
+        self.notes_preview_layout.setContentsMargins(0, 0, 0, 0)
+        self.notes_preview_layout.setSpacing(0)
+        layout.addWidget(self.notes_preview_container)
 
         # Input bar
         self.input_bar = QFrame()
@@ -838,7 +994,7 @@ class InputSection(QFrame):
 
         # Text input
         self.text_input = QLineEdit()
-        self.text_input.setPlaceholderText("Describe changes...")
+        self.text_input.setPlaceholderText("Describe changes to the score...")
         self.text_input.setFixedHeight(40)
         self.text_input.setStyleSheet(f"""
             QLineEdit {{
@@ -865,23 +1021,25 @@ class InputSection(QFrame):
         self.send_btn.clicked.connect(self._submit)
         bar_layout.addWidget(self.send_btn)
 
-        # Connect text changes to button state
         self.text_input.textChanged.connect(self._update_send_btn_state)
+        self.api_key_input.textChanged.connect(self._update_send_btn_state)
 
         layout.addWidget(self.input_bar)
 
-        # Recording timer
-        self._rec_timer = QTimer(self)
-        self._rec_timer.timeout.connect(self._on_rec_tick)
+        self.status_label = QLabel("Ready.")
+        self.status_label.setStyleSheet(f"""
+            color: {TEXT_SECONDARY};
+            font-size: {LABEL_FONT_SIZE}px;
+            padding: 8px 12px 10px 12px;
+            background-color: {SURFACE_COLOR};
+            border-top: 1px solid {BORDER_COLOR};
+        """)
+        layout.addWidget(self.status_label)
 
-        # Track if we're waiting for response
         self._waiting = False
-
-        # Set initial button state (disabled since text is empty)
         self._update_send_btn_state()
 
     def _update_send_btn_style(self):
-        """Update send button style based on enabled state."""
         if self.send_btn.isEnabled():
             self.send_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -910,134 +1068,162 @@ class InputSection(QFrame):
             self.send_btn.setCursor(Qt.CursorShape.ArrowCursor)
 
     def _update_send_btn_state(self):
-        """Enable/disable send button based on input state."""
         has_text = bool(self.text_input.text().strip())
-        has_audio = self._pending_audio is not None
-        can_send = (has_text or has_audio) and not self._waiting
+        has_api_key = bool(self.api_key_input.text().strip())
+        can_send = (
+            has_text
+            and has_api_key
+            and not self._waiting
+            and not self._recording
+            and not self._record_transition_pending
+        )
         self.send_btn.setEnabled(can_send)
+        self.mic_btn.setEnabled(not self._waiting and not self._record_transition_pending)
         self._update_send_btn_style()
 
     def _toggle_recording(self):
+        if self._waiting or self._record_transition_pending:
+            return
         if self._recording:
-            self._stop_recording()
+            self._record_transition_pending = True
+            self.mic_btn.set_preparing()
+            self.set_status("Transcribing...", error=False)
+            self._update_send_btn_state()
+            self.recordStopRequested.emit()
         else:
-            self._start_recording()
+            self._record_transition_pending = True
+            self.clear_recording_artifacts()
+            self.mic_btn.set_preparing()
+            self.set_status("Preparing microphone...", error=False)
+            self._update_send_btn_state()
+            self.recordStartRequested.emit()
 
-    def _start_recording(self):
-        # Remove any existing preview first
-        if self._audio_preview:
-            self._audio_preview.deleteLater()
-            self._audio_preview = None
-            self._pending_audio = None
+    def set_status(self, text: str, *, error: bool):
+        color = RECORDING_COLOR if error else TEXT_SECONDARY
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(f"""
+            color: {color};
+            font-size: {LABEL_FONT_SIZE}px;
+            padding: 8px 12px 10px 12px;
+            background-color: {SURFACE_COLOR};
+            border-top: 1px solid {BORDER_COLOR};
+        """)
 
-        # Show preparing state with spinner
-        self.mic_btn.set_preparing()
-
-        self._temp_path = os.path.join(
-            tempfile.gettempdir(),
-            f"maestro_rec_{id(self)}.wav"
-        )
-
-        # Simulate setup delay, then start actual recording
-        QTimer.singleShot(400, self._begin_recording)
-
-    def _begin_recording(self):
-        """Actually start recording after preparation."""
+    def confirm_recording_started(self, status: str):
+        self._record_transition_pending = False
         self._recording = True
-        self._record_ticks = 0
         self.mic_btn.set_recording(True)
-        self._rec_timer.start(500)
+        self.set_status(status, error=False)
+        self._update_send_btn_state()
 
-    def _stop_recording(self):
+    def confirm_recording_stopped(self, capture: CapturedHumming, status: str):
+        self._record_transition_pending = False
         self._recording = False
-        self._rec_timer.stop()
+        self.mic_btn.set_recording(False)
+        self.set_recorded_audio(capture.audio_path, capture.duration_seconds)
+        self.set_hummed_notes(capture.notes)
+        self.set_status(status, error=False)
+        self._update_send_btn_state()
 
-        # Show preparing spinner while processing
-        self.mic_btn.set_preparing()
+    def show_recording_error(self, message: str):
+        self._record_transition_pending = False
+        self._recording = False
+        self.mic_btn.set_recording(False)
+        self.set_status(message, error=True)
+        self._update_send_btn_state()
 
-        duration = max(0.5, self._record_ticks * 0.5)
-        self._create_audio(duration)
+    def set_hummed_notes(self, notes: str):
+        self._hummed_notes = notes.strip()
+        if not self._hummed_notes:
+            self._clear_hummed_notes_preview()
+            return
 
-        # Delay to show processing, then show preview
-        QTimer.singleShot(300, lambda: self._finish_recording(duration))
+        if self._notes_preview is None:
+            self._notes_preview = HummedNotesBar(self._hummed_notes)
+            self._notes_preview.cleared.connect(self.clear_recording_artifacts)
+            self.notes_preview_layout.addWidget(self._notes_preview)
+            QTimer.singleShot(10, self._notes_preview.slide_in)
+        else:
+            self._notes_preview.set_notes(self._hummed_notes)
 
-    def _finish_recording(self, duration: float):
-        """Finish recording and show preview."""
-        self.mic_btn.set_recording(False)  # Back to idle
+        self._update_send_btn_state()
 
-        if self._temp_path and os.path.exists(self._temp_path):
-            self._show_audio_preview(self._temp_path, duration)
+    def set_recorded_audio(self, audio_path: str, duration: float):
+        self._clear_audio_preview(delete_file=False)
 
-    def _show_audio_preview(self, path: str, duration: float):
-        """Show animated audio preview bar."""
-        self._pending_audio = (path, duration)
+        self._recorded_audio_path = audio_path
+        self._recorded_audio_duration = duration
+        if not audio_path:
+            return
 
-        self._audio_preview = AudioPreviewBar(path, duration)
-        self._audio_preview.deleted.connect(self._clear_audio_preview)
+        self._audio_preview = AudioPreviewBar(audio_path, duration)
+        self._audio_preview.deleted.connect(self._on_audio_preview_deleted)
         self.audio_preview_layout.addWidget(self._audio_preview)
-
-        # Animate in
         QTimer.singleShot(10, self._audio_preview.slide_in)
 
-        # Update send button state
+    def clear_recording_artifacts(self):
+        self._hummed_notes = ""
+        self._clear_hummed_notes_preview()
+        self._clear_audio_preview(delete_file=True)
         self._update_send_btn_state()
 
-    def _clear_audio_preview(self):
-        """Clear the audio preview."""
-        if self._audio_preview:
-            self._audio_preview.deleteLater()
-            self._audio_preview = None
-        self._pending_audio = None
-        self._update_send_btn_state()
+    def _clear_hummed_notes_preview(self):
+        if self._notes_preview:
+            preview = self._notes_preview
+            self._notes_preview = None
+            preview.slide_out(lambda: preview.deleteLater())
 
-    def _create_audio(self, duration: float):
-        """Create demo audio file."""
-        if not self._temp_path:
-            return
+    def _clear_audio_preview(self, *, delete_file: bool):
+        audio_path = self._recorded_audio_path
+        self._recorded_audio_path = ""
+        self._recorded_audio_duration = 0.0
 
-        rate = 44100
-        samples = int(rate * duration)
+        def finalize():
+            if delete_file and audio_path:
+                Path(audio_path).unlink(missing_ok=True)
 
-        with wave.open(self._temp_path, 'w') as f:
-            f.setnchannels(1)
-            f.setsampwidth(2)
-            f.setframerate(rate)
-
-            for i in range(samples):
-                t = i / rate
-                fade = min(1.0, min(t * 10, (duration - t) * 10))
-                val = int(fade * 6000 * math.sin(2 * math.pi * 440 * t))
-                f.writeframes(struct.pack('<h', val))
-
-    def _on_rec_tick(self):
-        self._record_ticks += 1
-
-    def _submit(self):
-        text = self.text_input.text().strip()
-        audio_path = ""
-        audio_duration = 0.0
-
-        if self._pending_audio:
-            audio_path, audio_duration = self._pending_audio
-
-        # Need either text or audio
-        if not text and not audio_path:
-            return
-
-        # Slide out audio preview if present
         if self._audio_preview:
             preview = self._audio_preview
             self._audio_preview = None
-            self._pending_audio = None
-            preview.slide_out(lambda: preview.deleteLater())
 
-        self.messageSubmitted.emit(text, audio_path, audio_duration)
+            def remove_preview():
+                preview.deleteLater()
+                finalize()
+
+            preview.slide_out(remove_preview)
+        else:
+            finalize()
+
+    def _on_audio_preview_deleted(self):
+        audio_path = self._recorded_audio_path
+        self._recorded_audio_path = ""
+        self._recorded_audio_duration = 0.0
+        self._hummed_notes = ""
+
+        if self._audio_preview:
+            preview = self._audio_preview
+            self._audio_preview = None
+            preview.deleteLater()
+
+        self._clear_hummed_notes_preview()
+        if audio_path:
+            Path(audio_path).unlink(missing_ok=True)
+        self._update_send_btn_state()
+
+    def _submit(self):
+        text = self.text_input.text().strip()
+        api_key = self.api_key_input.text().strip()
+        if not text or not api_key:
+            return
+
+        self.messageSubmitted.emit(text, api_key, self._hummed_notes)
         self.text_input.clear()
+        self._update_send_btn_state()
 
     def set_enabled(self, enabled: bool):
         self._waiting = not enabled
         self.text_input.setEnabled(enabled)
-        self.mic_btn.setEnabled(enabled)
+        self.api_key_input.setEnabled(enabled)
         self._update_send_btn_state()
 
 
@@ -1046,6 +1232,8 @@ class MaestroWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.backend = DesktopAgentBackend()
+        self._tasks: list[BackgroundTaskThread] = []
         self._setup_window()
         self._setup_ui()
 
@@ -1125,47 +1313,86 @@ class MaestroWindow(QWidget):
         self.conversation = ConversationArea()
         layout.addWidget(self.conversation, 1)
 
-        # Input section (includes audio preview + input bar)
+        # Input section
         self.input_section = InputSection()
         self.input_section.messageSubmitted.connect(self._on_submit)
+        self.input_section.recordStartRequested.connect(self._start_humming)
+        self.input_section.recordStopRequested.connect(self._stop_humming)
         layout.addWidget(self.input_section)
 
-    def _on_submit(self, text: str, audio_path: str, audio_duration: float):
-        # Add user message (with optional audio)
-        if audio_path:
-            msg = Message(
-                type=MessageType.USER_AUDIO,
-                content=text,
-                audio_path=audio_path,
-                duration=audio_duration
-            )
-        else:
-            msg = Message(type=MessageType.USER_TEXT, content=text)
+    def _start_task(self, callback, on_success, on_error):
+        task = BackgroundTaskThread(callback, self)
+        self._tasks.append(task)
+        task.succeeded.connect(on_success)
+        task.failed.connect(on_error)
 
-        self.conversation.add_message(msg)
+        def _cleanup():
+            if task in self._tasks:
+                self._tasks.remove(task)
 
-        # Show loading
-        loading = Message(type=MessageType.LOADING)
-        self.conversation.add_message(loading)
+        task.finished.connect(_cleanup)
+        task.finished.connect(task.deleteLater)
+        task.start()
+
+    def _start_humming(self):
+        self._start_task(
+            self.backend.start_humming,
+            lambda _: self.input_section.confirm_recording_started("Recording... hum, then press Stop."),
+            self._on_humming_error,
+        )
+
+    def _stop_humming(self):
+        self._start_task(
+            self.backend.stop_humming,
+            self._on_humming_stopped,
+            self._on_humming_error,
+        )
+
+    def _on_humming_stopped(self, capture: object):
+        notes = getattr(capture, "notes", "") or ""
+        status = "Humming captured." if str(notes).strip() else "No stable notes detected. Try again."
+        self.input_section.confirm_recording_stopped(capture, status)
+
+    def _on_humming_error(self, exc: object):
+        self.input_section.show_recording_error(str(exc))
+
+    def _on_submit(self, text: str, api_key: str, hummed_notes: str):
+        content = text
+        cleaned_hummed_notes = hummed_notes.strip()
+        if cleaned_hummed_notes:
+            content = f"{text}\n\nHummed notes:\n{cleaned_hummed_notes}"
+
+        self.conversation.add_message(Message(type=MessageType.USER_TEXT, content=content))
+        self.conversation.add_message(Message(type=MessageType.LOADING))
 
         self.input_section.set_enabled(False)
+        self.input_section.set_status("Generating...", error=False)
 
-        # Simulate response
-        QTimer.singleShot(1500, lambda: self._on_response(text or "[Audio message]"))
+        self._start_task(
+            lambda: self.backend.generate_code(text, api_key, cleaned_hummed_notes),
+            self._on_generation_success,
+            self._on_generation_error,
+        )
 
-    def _on_response(self, prompt: str):
+    def _on_generation_success(self, result: object):
         self.conversation.remove_loading()
-
-        response = self.on_prompt_submit(prompt)
-        msg = Message(type=MessageType.AI_TEXT, content=response)
-        self.conversation.add_message(msg)
-
+        python_code = getattr(result, "python_code", "")
+        self.conversation.add_message(Message(type=MessageType.AI_CODE, content=python_code))
         self.input_section.set_enabled(True)
+        self.input_section.set_status("Code ready.", error=False)
         self.input_section.text_input.setFocus()
 
-    def on_prompt_submit(self, prompt: str) -> str:
-        """Override to connect AI backend."""
-        return f"Changes applied to measures 4-8 based on your request.\n\nThe melody has been modified with new articulation and dynamics."
+    def _on_generation_error(self, exc: object):
+        self.conversation.remove_loading()
+        self.conversation.add_message(Message(type=MessageType.AI_TEXT, content=str(exc)))
+
+        python_code = getattr(exc, "python_code", "")
+        if python_code:
+            self.conversation.add_message(Message(type=MessageType.AI_CODE, content=python_code))
+
+        self.input_section.set_enabled(True)
+        self.input_section.set_status("Generation failed.", error=True)
+        self.input_section.text_input.setFocus()
 
     # Drag and resize handling
     def _get_resize_edge(self, pos):

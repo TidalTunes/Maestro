@@ -2,6 +2,8 @@
 
 These examples show the intended `maestroxml` workflow after the bridge refactor: build music in Python, inspect the action plan if useful, then apply it to a live MuseScore score.
 
+For live edits to an already-open score, use the same score-shaped API on a cloned shell and export only `to_delta_actions(base_score)` instead of replaying the whole imported score.
+
 For the full method list, see [API Reference](api-reference.md). For the step-by-step workflow, see [Getting Started](getting-started.md).
 
 ## 1. Short Melody With Action Inspection

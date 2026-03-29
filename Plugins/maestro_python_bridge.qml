@@ -108,6 +108,86 @@ MuseScore {
             throw new Error("No score is open. Open a score in MuseScore before sending this operation.")
     }
 
+    function exportCurrentScore(requestId) {
+        if (typeof writeScore !== "function")
+            throw new Error("MuseScore plugin host does not expose writeScore().")
+
+        var stem = "score-" + (requestId || "latest")
+        var basePath = bridgeDir + "/" + stem
+
+        function cleanupCandidate(path) {
+            pathProbe.source = path
+            if (pathProbe.exists())
+                pathProbe.remove()
+        }
+
+        function detectExportedPath(base, ext) {
+            var candidates = [
+                base + "." + ext,
+                base,
+                base + "." + ext + "." + ext
+            ]
+            for (var i = 0; i < candidates.length; i++) {
+                pathProbe.source = candidates[i]
+                if (pathProbe.exists())
+                    return candidates[i]
+            }
+            return ""
+        }
+
+        cleanupCandidate(basePath)
+        cleanupCandidate(basePath + ".musicxml")
+        cleanupCandidate(basePath + ".musicxml.musicxml")
+        cleanupCandidate(basePath + ".xml")
+        cleanupCandidate(basePath + ".xml.xml")
+
+        var wrotePrimary = false
+        var primaryError = ""
+        try {
+            wrotePrimary = !!writeScore(curScore, basePath, "musicxml")
+        } catch (err) {
+            primaryError = String(err)
+        }
+
+        var primaryOutputPath = detectExportedPath(basePath, "musicxml")
+        if (wrotePrimary || primaryOutputPath !== "") {
+            if (primaryOutputPath === "")
+                throw new Error("writeScore reported success but no MusicXML file was created.")
+            return {
+                path: primaryOutputPath,
+                format: "musicxml"
+            }
+        }
+
+        var wroteFallback = false
+        var fallbackError = ""
+        try {
+            wroteFallback = !!writeScore(curScore, basePath, "xml")
+        } catch (fallbackErr) {
+            fallbackError = String(fallbackErr)
+        }
+
+        var fallbackOutputPath = detectExportedPath(basePath, "xml")
+        if (wroteFallback || fallbackOutputPath !== "") {
+            if (fallbackOutputPath === "")
+                throw new Error("writeScore fallback reported success but no XML file was created.")
+            return {
+                path: fallbackOutputPath,
+                format: "xml"
+            }
+        }
+
+        var details = []
+        if (primaryError)
+            details.push("musicxml export error: " + primaryError)
+        if (fallbackError)
+            details.push("xml export error: " + fallbackError)
+        throw new Error(
+            "Failed to export the open score to MusicXML."
+            + (details.length ? " " + details.join(" | ") : "")
+        )
+    }
+
     function handleRequestObject(request) {
         var response = buildBaseResponse(request.request_id)
         response.received_at = nowIso()
@@ -151,6 +231,13 @@ MuseScore {
             response.result = {
                 events: Ops.readScore(curScore, elementTypes())
             }
+            return response
+        }
+
+        if (operation === "export_musicxml") {
+            requireScore()
+            response.ok = true
+            response.result = exportCurrentScore(request.request_id)
             return response
         }
 

@@ -48,6 +48,13 @@ DISALLOWED_ATTRIBUTE_CALLS = {
     "write_bytes",
     "write_text",
 }
+EDIT_DISALLOWED_ATTRIBUTE_CALLS = DISALLOWED_ATTRIBUTE_CALLS | {
+    "apply",
+    "to_actions",
+    "to_batch",
+    "to_string",
+    "write",
+}
 
 
 class CodeGuardError(RuntimeError):
@@ -168,3 +175,73 @@ def validate_generated_code(code: str) -> None:
         raise CodeGuardError("Generated code must import `maestroxml`.")
     if not has_output_path_reference:
         raise CodeGuardError("Generated code must reference the build_score(output_path) argument.")
+
+
+def validate_generated_edit_code(code: str) -> None:
+    stripped = code.strip()
+    if not stripped:
+        raise CodeGuardError("The model returned an empty response instead of Python code.")
+    if "```" in code:
+        raise CodeGuardError("The model returned Markdown fences; raw Python source was required.")
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise CodeGuardError(f"Generated Python is not syntactically valid: {exc.msg}") from exc
+
+    public_functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+    edit_functions = [node for node in public_functions if node.name == "apply_changes"]
+    if len(edit_functions) != 1:
+        raise CodeGuardError("Generated code must define exactly one apply_changes(score) function.")
+
+    if len(public_functions) != 1:
+        raise CodeGuardError("Generated code must not define helper functions outside apply_changes().")
+
+    edit_function = edit_functions[0]
+    if (
+        len(edit_function.args.args) != 1
+        or edit_function.args.args[0].arg != "score"
+        or edit_function.args.kwonlyargs
+        or edit_function.args.vararg
+        or edit_function.args.kwarg
+    ):
+        raise CodeGuardError("apply_changes must accept exactly one argument named score.")
+
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            continue
+        raise CodeGuardError("Generated code must not execute statements at import time.")
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise CodeGuardError("Generated edit code must not import any modules.")
+        if isinstance(node, ast.Call):
+            call_name = _call_name(node.func)
+            if call_name in DISALLOWED_CALL_NAMES:
+                raise CodeGuardError(f"Disallowed function call in generated code: {call_name}")
+            if call_name.startswith("os.") or call_name.startswith("subprocess."):
+                raise CodeGuardError(f"Disallowed function call in generated code: {call_name}")
+            if isinstance(node.func, ast.Attribute):
+                if node.func.attr in NOTE_METHOD_NAMES and node.args:
+                    duration = _string_constant(node.args[0])
+                    if duration is not None:
+                        _validate_duration_literal(duration, f"{node.func.attr}(...) call")
+                if node.func.attr in EDIT_DISALLOWED_ATTRIBUTE_CALLS:
+                    raise CodeGuardError(
+                        f"Disallowed attribute call in generated code: {node.func.attr}"
+                    )
+                root = _root_name(node.func.value)
+                if root in {"subprocess", "shutil", "socket"}:
+                    raise CodeGuardError(
+                        f"Disallowed module usage in generated code: {root}.{node.func.attr}"
+                    )
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if _string_constant(key) == "duration":
+                    duration = _string_constant(value)
+                    if duration is not None:
+                        _validate_duration_literal(duration, "duration field")
+        elif isinstance(node, ast.Return) and node.value is not None:
+            raise CodeGuardError("apply_changes(score) must not return a value.")

@@ -635,11 +635,38 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
 // ─── Score Reading ──────────────────────────────────────────────────────────
 
 function scoreInfo(score) {
+    var measureStarts = []
+    var measure = score.firstMeasure
+    while (measure) {
+        var firstSegment = measure.firstSegment
+        measureStarts.push(firstSegment ? firstSegment.tick : 0)
+        measure = measure.nextMeasure
+    }
+
+    var parts = []
+    if (score.parts) {
+        for (var i = 0; i < score.parts.length; i++) {
+            var part = score.parts[i]
+            if (!part)
+                continue
+            parts.push({
+                partName: part.partName !== undefined ? part.partName : "",
+                shortName: part.shortName !== undefined ? part.shortName : "",
+                longName: part.longName !== undefined ? part.longName : "",
+                instrumentId: part.instrumentId !== undefined ? part.instrumentId : "",
+                startTrack: part.startTrack !== undefined ? part.startTrack : i * 4,
+                endTrack: part.endTrack !== undefined ? part.endTrack : (i + 1) * 4
+            })
+        }
+    }
+
     return {
         title: score.title, composer: score.composer,
         nstaves: score.nstaves, ntracks: score.ntracks,
         nmeasures: score.nmeasures, duration: score.duration,
-        keysig: score.keysig, tpq: 480
+        keysig: score.keysig, tpq: 480,
+        measure_starts: measureStarts,
+        parts: parts
     }
 }
 

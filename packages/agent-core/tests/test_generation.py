@@ -17,10 +17,13 @@ for extra in (
 from maestro_agent_core import (
     AgentError,
     CodeGuardError,
+    build_edit_model_input,
     build_model_input,
+    execute_generated_edit_code,
     execute_generated_code,
     sanitize_filename_stem,
     validate_generated_code,
+    validate_generated_edit_code,
 )
 from maestro_agent_core.context import ReferenceLoadError, load_reference_corpus
 
@@ -95,6 +98,29 @@ class GuardTests(unittest.TestCase):
                 "    score.write(output_path)\n"
             )
 
+    def test_accepts_edit_contract(self) -> None:
+        validate_generated_edit_code(
+            "def apply_changes(score):\n"
+            "    flute = score.parts[0]\n"
+            "    score.measure(2)\n"
+            "    flute.note('quarter', 'D5')\n"
+        )
+
+    def test_rejects_edit_imports(self) -> None:
+        with self.assertRaises(CodeGuardError):
+            validate_generated_edit_code(
+                "from maestroxml import Score\n"
+                "def apply_changes(score):\n"
+                "    return None\n"
+            )
+
+    def test_rejects_edit_apply_calls(self) -> None:
+        with self.assertRaises(CodeGuardError):
+            validate_generated_edit_code(
+                "def apply_changes(score):\n"
+                "    score.apply()\n"
+            )
+
 
 class PromptInputTests(unittest.TestCase):
     def test_build_model_input_appends_hummed_notes_context(self) -> None:
@@ -107,6 +133,18 @@ class PromptInputTests(unittest.TestCase):
     def test_build_model_input_requires_prompt(self) -> None:
         with self.assertRaises(AgentError):
             build_model_input("   ", "A4, quarter")
+
+    def test_build_edit_model_input_includes_score_context(self) -> None:
+        payload = build_edit_model_input(
+            "make the ending louder",
+            "from maestroxml import Score\n\nscore = Score()\n",
+            "A4, quarter",
+        )
+
+        self.assertIn("make the ending louder", payload)
+        self.assertIn("<current_score_python_context>", payload)
+        self.assertIn("score = Score()", payload)
+        self.assertIn("A4, quarter", payload)
 
 
 class ExecutionTests(unittest.TestCase):
@@ -146,6 +184,68 @@ class ExecutionTests(unittest.TestCase):
 
         self.assertEqual(filename, "flute_solo.musicxml")
         self.assertEqual(musicxml, "<score-partwise/>")
+
+    def test_execute_generated_edit_code_runs_against_imported_score(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            src_dir = root / "src" / "maestroxml"
+            src_dir.mkdir(parents=True)
+            (src_dir / "__init__.py").write_text(
+                "import json\n"
+                "class Score:\n"
+                "    def __init__(self, *args, **kwargs):\n"
+                "        self.actions = []\n"
+                "        self.parts = []\n"
+                "        self.current_measure = None\n"
+                "    def add_part(self, *args, **kwargs):\n"
+                "        part = Part(self)\n"
+                "        self.parts.append(part)\n"
+                "        return part\n"
+                "    def measure(self, number=None):\n"
+                "        self.current_measure = number\n"
+                "        return self\n"
+                "    def clone_shell(self):\n"
+                "        clone = Score()\n"
+                "        clone.parts = [Part(clone) for _ in self.parts]\n"
+                "        return clone\n"
+                "    def to_delta_actions(self, base_score):\n"
+                "        return list(self.actions)\n"
+                "class Part:\n"
+                "    def __init__(self, score):\n"
+                "        self.score = score\n"
+                "    def note(self, duration, pitch, **kwargs):\n"
+                "        self.score.actions.append({\n"
+                "            'kind': 'add_note',\n"
+                "            'duration': duration,\n"
+                "            'pitch': pitch,\n"
+                "            'measure': self.score.current_measure,\n"
+                "        })\n",
+                encoding="utf-8",
+            )
+
+            actions = execute_generated_edit_code(
+                "def apply_changes(score):\n"
+                "    score.measure(2)\n"
+                "    flute.note('quarter', 'D5')\n",
+                "from maestroxml import Score\n\n"
+                "score = Score()\n"
+                "flute = score.add_part('Flute', instrument='flute')\n"
+                "score.measure(1)\n",
+                maestroxml_src_root=root / "src",
+                execution_timeout_seconds=10,
+            )
+
+        self.assertEqual(
+            actions,
+            [
+                {
+                    "kind": "add_note",
+                    "duration": "quarter",
+                    "pitch": "D5",
+                    "measure": 2,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":

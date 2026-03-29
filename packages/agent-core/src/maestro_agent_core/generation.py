@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -7,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from .guard import validate_generated_code
+from .guard import validate_generated_code, validate_generated_edit_code
 
 
 RUNNER_SCRIPT = """
@@ -32,6 +33,61 @@ if build_score is None or not callable(build_score):
     raise RuntimeError("Generated code must define build_score(output_path).")
 
 build_score(str(output_path))
+""".strip()
+
+EDIT_RUNNER_SCRIPT = """
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+base_script_path = Path(sys.argv[1])
+edit_script_path = Path(sys.argv[2])
+output_path = Path(sys.argv[3])
+
+namespace = {}
+exec(base_script_path.read_text(encoding="utf-8"), namespace)
+
+base_score = namespace.get("score")
+if base_score is None:
+    raise RuntimeError("Imported score context must define a global `score` object.")
+if not hasattr(base_score, "clone_shell") or not hasattr(base_score, "to_delta_actions"):
+    raise RuntimeError("Imported score context must provide maestroxml live-edit helpers.")
+
+score = base_score.clone_shell()
+part_map = {id(source): target for source, target in zip(base_score.parts, score.parts)}
+
+for name, value in list(namespace.items()):
+    if value is base_score:
+        namespace[name] = score
+        continue
+
+    mapped_part = part_map.get(id(value))
+    if mapped_part is not None:
+        namespace[name] = mapped_part
+        continue
+
+    owner = getattr(value, "part", None)
+    voice = getattr(value, "voice", None)
+    staff = getattr(value, "staff", None)
+    mapped_owner = part_map.get(id(owner))
+    if mapped_owner is not None and isinstance(voice, int) and isinstance(staff, int):
+        namespace[name] = mapped_owner.voice(voice, staff)
+
+namespace["score"] = score
+
+exec(edit_script_path.read_text(encoding="utf-8"), namespace)
+
+apply_changes = namespace.get("apply_changes")
+if apply_changes is None or not callable(apply_changes):
+    raise RuntimeError("Generated code must define apply_changes(score).")
+
+apply_changes(score)
+output_path.write_text(
+    json.dumps(score.to_delta_actions(base_score), indent=2) + "\\n",
+    encoding="utf-8",
+)
 """.strip()
 
 
@@ -81,6 +137,43 @@ def build_generation_instructions(reference_corpus: str) -> str:
     )
 
 
+def build_edit_generation_instructions(reference_corpus: str) -> str:
+    return (
+        "You are a specialist Python edit generator for the maestroxml package.\n\n"
+        "<instruction_priority>\n"
+        "- Follow the Maestro references exactly when they conflict with user preferences.\n"
+        "- The current score context is reference material that shows the live score as code.\n"
+        "- During execution, score and the named part/voice globals refer to a blank maestroxml change plan with the same existing structure.\n"
+        "- Add only the requested changes. Do not recreate the existing score content.\n"
+        "- If the user requests unsupported notation, simplify to the closest supported result.\n"
+        "</instruction_priority>\n\n"
+        "<code_contract>\n"
+        "- Return runnable Python 3.13+ source code.\n"
+        "- Return only Python. No Markdown fences.\n"
+        "- Define exactly one public function named apply_changes(score).\n"
+        "- apply_changes(score) will run in a module that already defines score and the named part/voice globals shown in the current score context.\n"
+        "- score starts as an empty change plan with the same part, staff, voice, and measure structure as the live score.\n"
+        "- Add only the requested note, rest, chord, direction, time/key, measure, or part changes to that change plan.\n"
+        "- Do not recreate existing notes, rests, chords, directions, parts, or measures unless the user explicitly asks to change them.\n"
+        "- Mutate the supplied score in place.\n"
+        "- Do not create a replacement score and do not return a value.\n"
+        "- Do not import any modules.\n"
+        "- Do not call score.apply(), score.write(), score.to_actions(), score.to_string(), or score.to_batch().\n"
+        "- Do not read files, inspect environment variables, open network connections, invoke subprocesses, or execute dynamic code.\n"
+        "- Use loops and helper data structures inside apply_changes(score) when the edit repeats.\n"
+        "- Use score.measure(...) before adding events or directions.\n"
+        "</code_contract>\n\n"
+        "<duration_contract>\n"
+        "- Supported duration names are whole, half, quarter, eighth, 16th, 32nd, 64th.\n"
+        "- Allowed aliases are 8th, sixteenth, thirty-second, sixty-fourth.\n"
+        "- Never invent duration labels such as note, beat, quarter note, or quarter-note.\n"
+        "</duration_contract>\n\n"
+        "<reference_material>\n"
+        f"{reference_corpus}\n"
+        "</reference_material>"
+    )
+
+
 def build_model_input(prompt: str, hummed_notes: str = "") -> str:
     cleaned_prompt = prompt.strip()
     if not cleaned_prompt:
@@ -103,6 +196,53 @@ def build_model_input(prompt: str, hummed_notes: str = "") -> str:
                 "</hummed_melody_context>",
             ]
         )
+
+    return "\n".join(sections)
+
+
+def build_edit_model_input(
+    prompt: str,
+    current_score_python: str,
+    hummed_notes: str = "",
+) -> str:
+    cleaned_prompt = prompt.strip()
+    if not cleaned_prompt:
+        raise AgentError("The musical prompt cannot be empty.")
+
+    cleaned_score_python = current_score_python.strip()
+    if not cleaned_score_python:
+        raise AgentError("The current score context cannot be empty.")
+
+    sections = [
+        "<user_prompt>",
+        cleaned_prompt,
+        "</user_prompt>",
+    ]
+
+    cleaned_hummed_notes = hummed_notes.strip()
+    if cleaned_hummed_notes:
+        sections.extend(
+            [
+                "",
+                "<hummed_melody_context>",
+                "The user hummed the following notes into the microphone. Treat this as supplemental melodic and rhythmic context for the requested edit:",
+                cleaned_hummed_notes,
+                "</hummed_melody_context>",
+            ]
+        )
+
+    sections.extend(
+        [
+            "",
+            "<current_score_python_context>",
+            "The following Python represents the user's current score in maestroxml form.",
+            "Treat it as reference context for naming, layout, measures, and musical material.",
+            "During execution, score and the same named part/voice globals point to a blank maestroxml change plan with matching structure.",
+            "Reuse those globals to add only the requested changes.",
+            cleaned_score_python,
+            "</current_score_python_context>",
+        ]
+    )
 
     return "\n".join(sections)
 
@@ -160,6 +300,77 @@ def execute_generated_code(
             raise AgentError("Generated code finished without producing a MusicXML file.")
 
         return output_path.name, output_path.read_text(encoding="utf-8")
+
+
+def execute_generated_edit_code(
+    python_code: str,
+    current_score_python: str,
+    *,
+    maestroxml_src_root: Path,
+    execution_timeout_seconds: int,
+) -> list[dict[str, object]]:
+    validate_generated_edit_code(python_code)
+
+    cleaned_score_python = current_score_python.strip()
+    if not cleaned_score_python:
+        raise AgentError("The current score context cannot be empty.")
+
+    with tempfile.TemporaryDirectory(prefix="maestroxml-edit-agent-") as directory:
+        temp_dir = Path(directory)
+        base_script = temp_dir / "current_score.py"
+        edit_script = temp_dir / "generated_edits.py"
+        output_path = temp_dir / "generated_actions.json"
+
+        base_script.write_text(cleaned_score_python + "\n", encoding="utf-8")
+        edit_script.write_text(python_code, encoding="utf-8")
+
+        env = {
+            "PYTHONPATH": str(maestroxml_src_root),
+            "PYTHONIOENCODING": "utf-8",
+        }
+
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    EDIT_RUNNER_SCRIPT,
+                    str(base_script),
+                    str(edit_script),
+                    str(output_path),
+                ],
+                capture_output=True,
+                cwd=temp_dir,
+                env=env,
+                text=True,
+                timeout=execution_timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AgentError(
+                f"Generated edit code timed out after {execution_timeout_seconds} seconds."
+            ) from exc
+
+        if completed.returncode != 0:
+            detail = (
+                completed.stderr.strip()
+                or completed.stdout.strip()
+                or "Unknown execution failure."
+            )
+            raise AgentError(f"Generated edit code failed while building bridge actions:\n{detail}")
+
+        if not output_path.exists():
+            raise AgentError("Generated edit code finished without producing bridge actions.")
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise AgentError("Generated edit code produced invalid action JSON.") from exc
+
+        if not isinstance(payload, list):
+            raise AgentError("Generated edit code must produce a JSON array of bridge actions.")
+
+        return payload
 
 
 def extract_output_text(response: object) -> str:

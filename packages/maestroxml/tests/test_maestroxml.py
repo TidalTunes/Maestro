@@ -358,6 +358,52 @@ class MaestroXMLTests(unittest.TestCase):
         self.assertEqual(client.calls[0][0], score.to_actions())
         self.assertTrue(client.calls[0][1])
 
+    def test_to_delta_actions_only_emits_new_live_edit_actions(self) -> None:
+        base = self.build_hello_world()
+        edit = base.clone_shell()
+        flute = edit.parts[0]
+
+        edit.measure(2)
+        flute.note("quarter", "G5")
+
+        self.assertEqual(
+            edit.to_delta_actions(base),
+            [
+                {"kind": "append_measures", "count": 1},
+                {
+                    "kind": "add_note",
+                    "pitch": "G5",
+                    "duration": "quarter",
+                    "tick": 1920,
+                    "staff": 0,
+                    "voice": 0,
+                },
+            ],
+        )
+
+    def test_to_delta_actions_handles_new_parts(self) -> None:
+        base = self.build_hello_world()
+        edit = base.clone_shell()
+        violin = edit.add_part("Violin", instrument="violin")
+
+        edit.measure(1)
+        violin.note("half", "A4")
+
+        self.assertEqual(
+            edit.to_delta_actions(base),
+            [
+                {"kind": "add_part", "instrumentId": "violin"},
+                {
+                    "kind": "add_note",
+                    "pitch": "A4",
+                    "duration": "half",
+                    "tick": 0,
+                    "staff": 1,
+                    "voice": 0,
+                },
+            ],
+        )
+
     def test_pitch_key_and_duration_math(self) -> None:
         score = self.build_duration_math()
         actions = score.to_actions()
