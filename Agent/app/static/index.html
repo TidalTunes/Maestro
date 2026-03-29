@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MaestroXML</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <form id="composer-form" class="panel">
+        <label class="field">
+          <span>API key</span>
+          <input id="api-key" name="api-key" type="password" autocomplete="off" required />
+        </label>
+        <label class="field">
+          <span>Prompt</span>
+          <textarea id="prompt" name="prompt" rows="6" required></textarea>
+        </label>
+        <button id="submit" type="submit">Generate</button>
+        <div id="status" class="status">Idle</div>
+        <pre id="error" class="error"></pre>
+        <pre id="code" class="code" aria-label="Generated Python code"></pre>
+        <a id="download" class="download hidden" href="#" download>Download MusicXML</a>
+      </form>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
