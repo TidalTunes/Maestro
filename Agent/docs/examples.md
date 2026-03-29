@@ -1,12 +1,10 @@
 # Examples
 
-These examples show how to use `maestroxml` as a code-first composition tool. They favor loops, helper functions, and reusable data structures over repetitive note-by-note boilerplate.
+These examples show the intended `maestroxml` workflow after the bridge refactor: build music in Python, inspect the action plan if useful, then apply it to a live MuseScore score.
 
-For the underlying API, see [API Reference](api-reference.md). For the core workflow, see [Getting Started](getting-started.md).
+For the full method list, see [API Reference](api-reference.md). For the step-by-step workflow, see [Getting Started](getting-started.md).
 
-## 1. Short Melody With Directions
-
-Use this pattern when you want a single melodic line with tempo, dynamics, and notations.
+## 1. Short Melody With Action Inspection
 
 ```python
 from maestroxml import Score
@@ -20,26 +18,17 @@ score.key_signature("D minor")
 flute.tempo(84, text="Flowing")
 flute.dynamic("mp")
 flute.text("cantabile")
-flute.wedge("crescendo")
-flute.note("quarter", "A4", slur="start")
+flute.note("quarter", "A4")
 flute.note("eighth", "C5", tuplet=(3, 2), articulations=["staccato"])
 flute.note("eighth", "D5", tuplet=(3, 2))
 flute.note("eighth", "E5", tuplet=(3, 2))
-flute.note("quarter", "F5", tie="start")
+flute.note("quarter", "F5")
 flute.note("quarter", "G5")
 
-score.measure(2)
-flute.note("quarter", "F5", tie="stop", slur="stop", articulations=["accent"])
-flute.rest("quarter")
-flute.note("half", "D5")
-flute.wedge("stop")
-
-score.write("melody-study.musicxml")
+print(score.to_string())
 ```
 
-## 2. String Quartet With A Loop
-
-Store each harmony as data, then loop over it.
+## 2. Apply A Quartet Built From Loop Data
 
 ```python
 from maestroxml import Score
@@ -72,12 +61,10 @@ for measure_number, chord in progression:
     violin2.note("whole", chord["violin2"])
     violin1.note("whole", chord["violin1"])
 
-score.write("quartet-pulse.musicxml")
+score.apply()
 ```
 
-## 3. Piano Arpeggios Across Two Staves
-
-Use explicit staff cursors for the right and left hand.
+## 3. Piano Writing Across Two Staves
 
 ```python
 from maestroxml import Score
@@ -110,12 +97,10 @@ for measure_number in range(1, 5):
     for pitch in left_hand[measure_number]:
         left.note("half", pitch)
 
-score.write("broken-chords.musicxml")
+score.write("broken-chords-actions.json")
 ```
 
-## 4. Block Chords With A Helper Function
-
-Use `chord(...)` for simultaneous pitches and wrap repeated harmonic gestures in a Python function.
+## 4. Block Chords And Helper Functions
 
 ```python
 from maestroxml import Score
@@ -139,13 +124,9 @@ def cadence(measure_number, tonic, predominant, dominant):
 
 cadence(1, ["F4", "A4", "C5"], ["Bb4", "D5", "F5"], ["C5", "E5", "G5"])
 cadence(2, ["D4", "F4", "A4"], ["G4", "Bb4", "D5"], ["A4", "C#5", "E5"])
-
-score.write("cadence-study.musicxml")
 ```
 
 ## 5. Independent Voices In One Part
-
-Use separate voice numbers when one staff needs contrapuntal lines.
 
 ```python
 from maestroxml import Score
@@ -166,12 +147,10 @@ score.measure(2)
 upper.notes("eighth", ["C5", "D5", "E5", "G5"])
 lower.note("half", "A4")
 
-score.write("two-voices.musicxml")
+actions = score.to_actions()
 ```
 
-## 6. Repeats And First/Second Endings
-
-The repeat helpers live on `Part`.
+## 6. Repeat Helpers And Bridge-Limit Detection
 
 ```python
 from maestroxml import Score
@@ -194,20 +173,13 @@ clarinet.notes("quarter", ["C5", "B4"])
 clarinet.ending(1, "stop")
 clarinet.repeat_end(times=2)
 
-score.measure(4)
-clarinet.ending(2, "start")
-clarinet.notes("quarter", ["D5", "G5"])
-
-score.measure(5)
-clarinet.notes("quarter", ["F#5", "G5"])
-clarinet.ending(2, "stop")
-
-score.write("binary-dance.musicxml")
+print(score.unsupported_features())
+print(score.to_string())
 ```
 
-## 7. Helper-Driven Ostinato Generation
+The builder keeps the repeat information, but the current bridge backend can only preserve a repeat-count hint, not full repeat barline or volta notation.
 
-This is the kind of repetitive writing the library is meant to automate.
+## 7. Save A Reusable Action Plan
 
 ```python
 from maestroxml import Score
@@ -238,109 +210,20 @@ for measure_number, (pulse, leap) in pattern.items():
     score.measure(measure_number)
     ostinato(cello, pulse, leap)
 
-score.write("ostinato-engine.musicxml")
+score.write("ostinato-actions.json")
 ```
 
-## 8. Generated Melody Plus Chordal Accompaniment
-
-Put the melody and harmony in dictionaries, then build the score from those structures.
-
-```python
-from maestroxml import Score
-
-score = Score(title="Lead Sheet Skeleton")
-melody = score.add_part("Melody", instrument="flute")
-piano = score.add_part("Piano", instrument="piano")
-right = piano.voice(1, staff=1)
-left = piano.voice(1, staff=2)
-
-score.measure(1)
-score.time_signature("4/4")
-score.key_signature("C major")
-
-melody_cells = {
-    1: ["E5", "G5", "A5", "G5"],
-    2: ["F5", "E5", "D5", "C5"],
-    3: ["G5", "A5", "G5", "E5"],
-    4: ["D5", "C5", "B4", "C5"],
-}
-chords = {
-    1: (["C4", "E4", "G4"], ["C2", "G2"]),
-    2: (["F4", "A4", "C5"], ["F2", "C3"]),
-    3: (["G4", "B4", "D5"], ["G2", "D3"]),
-    4: (["C4", "E4", "G4"], ["C2", "G2"]),
-}
-
-for measure_number in range(1, 5):
-    score.measure(measure_number)
-    melody.notes("quarter", melody_cells[measure_number])
-    right.chord("half", chords[measure_number][0])
-    right.chord("half", chords[measure_number][0])
-    for bass_pitch in chords[measure_number][1]:
-        left.note("half", bass_pitch)
-
-score.write("lead-sheet-skeleton.musicxml")
-```
-
-## 9. Custom Part Without A Preset
-
-You can build parts with custom staves and clefs even if they are not covered by a preset.
-
-```python
-from maestroxml import Score
-
-score = Score(title="Custom Ensemble")
-manual = score.add_part(
-    "Manuals",
-    abbreviation="Man.",
-    staves=2,
-    clefs=["treble", "bass"],
-)
-
-upper = manual.voice(1, staff=1)
-lower = manual.voice(1, staff=2)
-
-score.measure(1)
-score.time_signature("4/4")
-score.key_signature("C major")
-upper.chord("whole", ["C4", "E4", "G4", "C5"])
-lower.note("whole", "C2")
-
-score.write("custom-ensemble.musicxml")
-```
-
-## 10. Import A MusicXML File For Editing
-
-Use the importer when the starting point is an existing MusicXML file instead of handwritten Python.
+## 8. Import MusicXML Into Editable Python
 
 ```python
 from maestroxml import musicxml_to_python
 
-code = musicxml_to_python(
+python_code = musicxml_to_python(
     "input.musicxml",
-    output_path="edited.musicxml",
+    output_path="input-actions.json",
 )
 
-print(code)
+print(python_code)
 ```
 
-Typical workflow:
-
-```python
-from pathlib import Path
-from maestroxml import musicxml_to_python
-
-python_code = musicxml_to_python("input.musicxml")
-Path("edit_score.py").write_text(python_code, encoding="utf-8")
-```
-
-Then edit `edit_score.py` and run it to produce a new MusicXML file.
-
-## Example Design Tips
-
-- Keep musical cells in lists and dictionaries.
-- Use small helper functions for patterns like arpeggios, cadences, and ostinati.
-- Use `chord(...)` only when pitches are truly simultaneous in one voice.
-- Use separate voices or staves when rhythms differ independently.
-- Let `score.measure()` and loops control form.
-- If a request requires unsupported notation, document the limitation instead of inventing an API that does not exist.
+The generated code rebuilds the supported score content with `Score`, `Part`, and `voice(...)`. Unsupported MusicXML detail is skipped to keep the result editable.

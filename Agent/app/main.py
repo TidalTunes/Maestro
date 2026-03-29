@@ -17,7 +17,7 @@ from app.context import ReferenceLoadError
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 
-app = FastAPI(title="MaestroXML Prompt-to-MusicXML")
+app = FastAPI(title="MaestroXML Prompt-to-MuseScore")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 humming_service = humming_module.HummingService()
 
@@ -29,9 +29,7 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    filename: str
     python_code: str
-    musicxml: str
 
 
 class HummingStartResponse(BaseModel):
@@ -54,7 +52,7 @@ async def index() -> HTMLResponse:
 async def generate(payload: GenerateRequest):
     try:
         result = await asyncio.to_thread(
-            agent_module.generate_musicxml_from_prompt,
+            agent_module.generate_score_code_from_prompt,
             payload.prompt,
             payload.api_key,
             get_settings(),
@@ -69,9 +67,7 @@ async def generate(payload: GenerateRequest):
         return JSONResponse(status_code=500, content={"error": str(exc), "python_code": ""})
 
     return GenerateResponse(
-        filename=result.filename,
         python_code=result.python_code,
-        musicxml=result.musicxml,
     )
 
 

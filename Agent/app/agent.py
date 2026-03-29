@@ -1,43 +1,14 @@
 from __future__ import annotations
 
-import re
-import subprocess
-import sys
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 
 from app.config import Settings
 from app.context import ReferenceLoadError, load_reference_corpus
 from app.guard import CodeGuardError, validate_generated_code
 
-RUNNER_SCRIPT = """
-from __future__ import annotations
-
-import importlib.util
-from pathlib import Path
-import sys
-
-script_path = Path(sys.argv[1])
-output_path = Path(sys.argv[2])
-
-spec = importlib.util.spec_from_file_location("generated_maestro_score", script_path)
-if spec is None or spec.loader is None:
-    raise RuntimeError("Unable to load generated score module.")
-
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-build_score = getattr(module, "build_score", None)
-if build_score is None or not callable(build_score):
-    raise RuntimeError("Generated code must define build_score(output_path).")
-
-build_score(str(output_path))
-""".strip()
-
 
 class AgentError(RuntimeError):
-    """Raised when prompt-to-MusicXML generation fails."""
+    """Raised when prompt-to-code generation fails."""
 
     def __init__(self, message: str, python_code: str | None = None) -> None:
         super().__init__(message)
@@ -45,32 +16,37 @@ class AgentError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class GeneratedMusicXML:
-    filename: str
+class GeneratedScoreCode:
     python_code: str
-    musicxml: str
 
 
 def build_generation_instructions(reference_corpus: str) -> str:
     return (
-        "You are a specialist Python code generator for the maestroxml package.\n\n"
+        "You are a specialist Python code generator for the current maestroxml package.\n\n"
         "<instruction_priority>\n"
-        "- Follow the Maestro references exactly when they conflict with user preferences.\n"
-        "- Stay within maestroxml's supported MusicXML subset.\n"
+        "- Follow the local Maestro references exactly.\n"
+        "- The current maestroxml workflow is bridge-backed and targets live MuseScore scores.\n"
+        "- Older MusicXML-export guidance is obsolete unless the local references explicitly describe an import helper.\n"
         "- If the user requests unsupported notation, simplify to the closest supported result.\n"
         "</instruction_priority>\n\n"
         "<code_contract>\n"
         "- Return runnable Python 3.13+ source code.\n"
         "- Return only Python. No Markdown fences.\n"
-        "- Define exactly one public function named build_score(output_path).\n"
-        "- build_score(output_path) must create a fresh maestroxml Score and write MusicXML to output_path.\n"
-        "- Allowed imports: from maestroxml import ... and optionally from pathlib import Path.\n"
-        "- Do not import os, subprocess, json, requests, sys, typing, or any other module.\n"
+        "- Define exactly one public function named build_score().\n"
+        "- build_score() must create and return a populated maestroxml Score object.\n"
+        "- Do not call score.apply(), score.write(), score.to_actions(), score.to_string(), or score.to_batch() inside build_score().\n"
+        "- Allowed imports: from maestroxml import ... only.\n"
+        "- Do not import pathlib, os, subprocess, json, requests, sys, typing, or any other module.\n"
         "- Do not read files, inspect environment variables, open network connections, invoke subprocesses, or execute dynamic code.\n"
-        "- Use loops and helper data structures inside build_score when the musical material repeats.\n"
+        "- Use loops and helper data structures inside build_score() when the musical material repeats.\n"
         "- If title or composer are missing, choose short tasteful defaults.\n"
         "- If applicable, cellos should be denoted as Violoncello.\n"
         "</code_contract>\n\n"
+        "<bridge_guidance>\n"
+        "- Compose with Score, Part, and voice(...) as usual.\n"
+        "- The returned Score may later be inspected with to_actions()/to_string() or applied with apply() by another system.\n"
+        "- Keep bridge limits in mind and avoid promising unsupported backend materialization.\n"
+        "</bridge_guidance>\n\n"
         "<duration_contract>\n"
         "- Supported duration names are whole, half, quarter, eighth, 16th, 32nd, 64th.\n"
         "- Allowed aliases are 8th, sixteenth, thirty-second, sixty-fourth.\n"
@@ -108,30 +84,21 @@ def build_model_input(prompt: str, hummed_notes: str = "") -> str:
     return "\n".join(sections)
 
 
-def generate_musicxml_from_prompt(
+def generate_score_code_from_prompt(
     prompt: str,
     api_key: str,
     settings: Settings,
     hummed_notes: str = "",
-) -> GeneratedMusicXML:
+) -> GeneratedScoreCode:
     python_code = generate_python_code(prompt, api_key, settings, hummed_notes=hummed_notes)
     try:
         validate_generated_code(python_code)
-        filename, musicxml = execute_generated_code(
-            python_code,
-            sanitize_filename_stem(prompt),
-            settings,
-        )
-    except (AgentError, CodeGuardError) as exc:
-        if isinstance(exc, AgentError):
-            raise AgentError(str(exc), python_code) from exc
+    except CodeGuardError as exc:
         raise AgentError(str(exc), python_code) from exc
 
-    return GeneratedMusicXML(
-        filename=filename,
-        python_code=python_code,
-        musicxml=musicxml,
-    )
+    return GeneratedScoreCode(python_code=python_code)
+
+
 def generate_python_code(
     prompt: str,
     api_key: str,
@@ -174,61 +141,6 @@ def generate_python_code(
     return extract_output_text(response)
 
 
-def execute_generated_code(
-    python_code: str,
-    filename_stem: str,
-    settings: Settings,
-) -> tuple[str, str]:
-    validate_generated_code(python_code)
-
-    with tempfile.TemporaryDirectory(prefix="maestroxml-agent-") as directory:
-        temp_dir = Path(directory)
-        generated_script = temp_dir / "generated_score.py"
-        output_path = temp_dir / f"{filename_stem}.musicxml"
-        generated_script.write_text(python_code, encoding="utf-8")
-
-        env = {
-            "PYTHONPATH": str(settings.root_dir / "src"),
-            "PYTHONIOENCODING": "utf-8",
-        }
-
-        try:
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    RUNNER_SCRIPT,
-                    str(generated_script),
-                    str(output_path),
-                ],
-                capture_output=True,
-                cwd=temp_dir,
-                env=env,
-                text=True,
-                timeout=settings.execution_timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise AgentError(
-                f"Generated code timed out after {settings.execution_timeout_seconds} seconds."
-            ) from exc
-
-        if completed.returncode != 0:
-            detail = (
-                completed.stderr.strip()
-                or completed.stdout.strip()
-                or "Unknown execution failure."
-            )
-            raise AgentError(f"Generated code failed while writing MusicXML:\n{detail}")
-
-        if not output_path.exists():
-            raise AgentError(
-                "Generated code finished without producing a MusicXML file."
-            )
-
-        return output_path.name, output_path.read_text(encoding="utf-8")
-
-
 def extract_output_text(response: object) -> str:
     output_text = getattr(response, "output_text", None)
     if isinstance(output_text, str) and output_text.strip():
@@ -253,14 +165,6 @@ def extract_output_text(response: object) -> str:
     if not joined:
         raise AgentError("OpenAI returned no text output.")
     return joined
-
-
-def sanitize_filename_stem(prompt: str) -> str:
-    collapsed = re.sub(r"[^a-z0-9]+", "_", prompt.strip().lower())
-    collapsed = collapsed.strip("_")
-    if not collapsed:
-        return "generated_score"
-    return collapsed[:60].strip("_") or "generated_score"
 
 
 def _response_status_message(response: object) -> str:

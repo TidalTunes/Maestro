@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import json
 from dataclasses import dataclass, field
 from fractions import Fraction
-from math import lcm
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
-DOCTYPE = (
-    '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" '
-    '"http://www.musicxml.org/dtds/partwise.dtd">'
-)
+if TYPE_CHECKING:
+    from maestro_musescore_bridge import ActionBatch, MuseScoreBridgeClient
+
+DEFAULT_TICKS_PER_QUARTER = 480
 
 CANONICAL_DURATION_NAMES = {
     "whole": "whole",
@@ -50,42 +49,49 @@ INSTRUMENT_PRESETS = {
         "staves": 1,
         "clefs": ["treble"],
         "instrument_name": "Violin",
+        "bridge_instrument_id": "violin",
     },
     "viola": {
         "abbreviation": "Vla.",
         "staves": 1,
         "clefs": ["alto"],
         "instrument_name": "Viola",
+        "bridge_instrument_id": "viola",
     },
     "cello": {
         "abbreviation": "Vc.",
         "staves": 1,
         "clefs": ["bass"],
         "instrument_name": "Cello",
+        "bridge_instrument_id": "violoncello",
     },
     "piano": {
         "abbreviation": "Pno.",
         "staves": 2,
         "clefs": ["treble", "bass"],
         "instrument_name": "Piano",
+        "bridge_instrument_id": "piano",
     },
     "flute": {
         "abbreviation": "Fl.",
         "staves": 1,
         "clefs": ["treble"],
         "instrument_name": "Flute",
+        "bridge_instrument_id": "flute",
     },
     "clarinet": {
         "abbreviation": "Cl.",
         "staves": 1,
         "clefs": ["treble"],
         "instrument_name": "Clarinet",
+        "bridge_instrument_id": "clarinet",
     },
     "voice": {
         "abbreviation": "V.",
         "staves": 1,
         "clefs": ["treble"],
         "instrument_name": "Voice",
+        "bridge_instrument_id": "soprano",
     },
 }
 
@@ -171,6 +177,37 @@ SUPPORTED_ARTICULATIONS = {
     "unstress",
     "soft-accent",
 }
+
+BRIDGE_ARTICULATION_SYMBOLS = {
+    "accent": "articAccentAbove",
+    "strong-accent": "articMarcatoAbove",
+    "staccato": "articStaccatoAbove",
+    "tenuto": "articTenutoAbove",
+    "staccatissimo": "articStaccatissimoAbove",
+    "stress": "articStressAbove",
+    "unstress": "articUnstressAbove",
+    "soft-accent": "articSoftAccentAbove",
+}
+
+BRIDGE_ACCIDENTAL_TYPES = {
+    "flat": 1,
+    "natural": 2,
+    "sharp": 3,
+    "double-sharp": 4,
+    "double-flat": 5,
+    "flat-flat": 5,
+}
+
+BRIDGE_BEAM_MODES = {
+    "begin": 1,
+    "continue": 2,
+    "end": 3,
+    "none": 4,
+    "forward hook": 5,
+    "backward hook": 6,
+}
+
+DEFAULT_TIME_SIGNATURE = (4, 4)
 
 
 @dataclass(frozen=True)
@@ -417,17 +454,63 @@ def _parse_key_signature(
     return fifths, mode_normalized
 
 
-def _lcm_denominators(values: Iterable[Fraction]) -> int:
-    result = 1
-    for value in values:
-        result = lcm(result, value.denominator)
-    return result
+def _pitch_to_string(pitch: Pitch) -> str:
+    accidental_map = {
+        None: "",
+        -2: "bb",
+        -1: "b",
+        0: "n",
+        1: "#",
+        2: "##",
+    }
+    accidental = accidental_map.get(pitch.alter)
+    if accidental is None:
+        raise ValueError(f"Unsupported pitch alteration for bridge output: {pitch.alter}")
+    return f"{pitch.step}{accidental}{pitch.octave}"
 
 
-def _set_text(parent: ET.Element, tag: str, value: object) -> ET.Element:
-    element = ET.SubElement(parent, tag)
-    element.text = str(value)
-    return element
+def _ticks_from_quarter_fraction(value: Fraction) -> int:
+    ticks = value * DEFAULT_TICKS_PER_QUARTER
+    if ticks.denominator != 1:
+        raise ValueError(
+            "This rhythm cannot be represented exactly with the MuseScore bridge "
+            f"tick grid ({value} quarter-notes)."
+        )
+    return int(ticks)
+
+
+def _measure_length_ticks(beats: int, beat_type: int) -> int:
+    return _ticks_from_quarter_fraction(Fraction(4 * beats, beat_type))
+
+
+def _duration_name_from_fraction(value: Fraction) -> str:
+    for duration_name, fraction in DURATION_VALUES.items():
+        if fraction == value:
+            return duration_name
+    raise ValueError(f"Unsupported duration fraction for bridge output: {value}")
+
+
+def _tuplet_total_duration_name(tuplet: TupletSpec) -> str:
+    normal_type = tuplet.normal_type or "quarter"
+    total_duration = DURATION_VALUES[normal_type] * tuplet.normal_notes
+    return _duration_name_from_fraction(total_duration)
+
+
+def _direction_text(kind: str) -> str | None:
+    if kind == "crescendo":
+        return "cresc."
+    if kind == "diminuendo":
+        return "dim."
+    return None
+
+
+def _bridge_import_error(name: str, error: ImportError) -> RuntimeError:
+    bridge_error = RuntimeError(
+        f"{name} requires the `maestro-musescore-bridge` package to be importable. "
+        "Install it alongside `maestroxml` or add it to PYTHONPATH."
+    )
+    bridge_error.__cause__ = error
+    return bridge_error
 
 
 class Score:
@@ -475,6 +558,11 @@ class Score:
         if len(clef_specs) != resolved_staves:
             raise ValueError("The number of clefs must match the part's staff count")
 
+        bridge_instrument_id = preset.get("bridge_instrument_id")
+        bridge_musicxml_id = None
+        if bridge_instrument_id is None:
+            bridge_musicxml_id = instrument or instrument_key.replace(" ", "-")
+
         part = Part(
             score=self,
             part_id=f"P{len(self.parts) + 1}",
@@ -483,6 +571,8 @@ class Score:
             instrument_name=str(preset.get("instrument_name", instrument or name)),
             staves=resolved_staves,
             initial_clefs={index + 1: clef for index, clef in enumerate(clef_specs)},
+            bridge_instrument_id=str(bridge_instrument_id) if bridge_instrument_id else None,
+            bridge_musicxml_id=bridge_musicxml_id,
         )
         self.parts.append(part)
 
@@ -528,36 +618,218 @@ class Score:
             self._key_changes[self.current_measure] = value
         return self
 
-    def to_string(self) -> str:
-        if not self.parts:
-            raise ValueError(
-                "Score has no parts. Add at least one part before serializing."
-            )
-        if self.current_measure is None:
-            raise ValueError(
-                "Score has no measures. Call measure() before serializing."
-            )
-
-        root = ET.Element("score-partwise", version="4.0")
-        self._build_header(root)
-        self._build_part_list(root)
-
-        divisions = self._compute_divisions()
-        max_measure = self._max_measure
+    def unsupported_features(self) -> list[str]:
+        unsupported: set[str] = set()
         for part in self.parts:
-            part_element = ET.SubElement(root, "part", id=part.part_id)
-            for measure_number in range(1, max_measure + 1):
+            for measure in part.measures.values():
+                if measure.clefs:
+                    unsupported.add("clef changes")
+                if measure.left_barline.repeat == "forward":
+                    unsupported.add("repeat start barlines")
+                if measure.left_barline.ending_number or measure.right_barline.ending_number:
+                    unsupported.add("volta endings")
+                if measure.right_barline.repeat == "backward":
+                    unsupported.add("repeat end barlines")
+                for stream in measure.streams.values():
+                    for event in stream.events:
+                        if isinstance(event, DirectionEvent):
+                            if event.kind == "wedge":
+                                unsupported.add("wedge spanners")
+                            continue
+                        if event.ties:
+                            unsupported.add("ties")
+                        if event.slurs:
+                            unsupported.add("slurs")
+                        unsupported_articulations = set(event.articulations) - (
+                            set(BRIDGE_ARTICULATION_SYMBOLS) | {"breath-mark", "caesura"}
+                        )
+                        if unsupported_articulations:
+                            unsupported.add("some articulations")
+        return sorted(unsupported)
+
+    def to_actions(
+        self,
+        *,
+        include_structure: bool = True,
+        ignore_unsupported: bool = True,
+    ) -> list[dict[str, Any]]:
+        if not self.parts:
+            raise ValueError("Score has no parts. Add at least one part before exporting.")
+        if self.current_measure is None:
+            raise ValueError("Score has no measures. Call measure() before exporting.")
+
+        unsupported = self.unsupported_features()
+        if unsupported and not ignore_unsupported:
+            joined = ", ".join(unsupported)
+            raise ValueError(
+                "This score contains features the current MuseScore bridge backend cannot write: "
+                f"{joined}."
+            )
+
+        actions: list[dict[str, Any]] = []
+        self._append_metadata_actions(actions)
+        if include_structure:
+            self._append_structure_actions(actions)
+
+        measure_ticks = self._measure_start_ticks()
+        staff_offsets = self._part_staff_offsets()
+
+        for measure_number in range(1, self._max_measure + 1):
+            measure_tick = measure_ticks[measure_number]
+            if measure_number in self._time_changes:
+                beats, beat_type = self._time_changes[measure_number]
+                actions.append(
+                    {
+                        "kind": "add_time_signature",
+                        "numerator": beats,
+                        "denominator": beat_type,
+                        "tick": measure_tick,
+                        "staff": 0,
+                    }
+                )
+            if measure_number in self._key_changes:
+                fifths, _mode = self._key_changes[measure_number]
+                actions.append(
+                    {
+                        "kind": "add_key_signature",
+                        "key": fifths,
+                        "tick": measure_tick,
+                        "staff": 0,
+                    }
+                )
+
+            for part in self.parts:
                 measure = part._ensure_measure(measure_number)
-                self._build_measure(part, measure, part_element, divisions)
+                part_staff_offset = staff_offsets[part.part_id]
 
-        ET.indent(root, space="  ")
-        body = ET.tostring(root, encoding="unicode")
-        return f'<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n{DOCTYPE}\n{body}\n'
+                if (
+                    measure.right_barline.repeat == "backward"
+                    and measure.right_barline.times is not None
+                ):
+                    actions.append(
+                        {
+                            "kind": "modify_measure",
+                            "tick": measure_tick,
+                            "repeatCount": measure.right_barline.times,
+                        }
+                    )
 
-    def write(self, path: str | Path) -> Path:
+                for (staff, voice), stream in sorted(
+                    measure.streams.items(), key=lambda item: (item[0][0], item[0][1])
+                ):
+                    global_staff = part_staff_offset + staff - 1
+                    voice_index = voice - 1
+                    active_tuplet: tuple[TupletSpec, int] | None = None
+
+                    for event in sorted(
+                        stream.events, key=lambda current: (current.offset, current.sequence)
+                    ):
+                        event_tick = measure_tick + _ticks_from_quarter_fraction(event.offset)
+                        if isinstance(event, DirectionEvent):
+                            self._append_direction_actions(
+                                actions,
+                                event,
+                                tick=event_tick,
+                                global_staff=global_staff,
+                            )
+                            continue
+
+                        if event.tuplet is not None:
+                            if active_tuplet is None or active_tuplet[0] != event.tuplet:
+                                actions.append(
+                                    {
+                                        "kind": "add_tuplet",
+                                        "tick": event_tick,
+                                        "staff": global_staff,
+                                        "voice": voice_index,
+                                        "actual": event.tuplet.actual_notes,
+                                        "normal": event.tuplet.normal_notes,
+                                        "totalDuration": _tuplet_total_duration_name(event.tuplet),
+                                    }
+                                )
+                                active_tuplet = (event.tuplet, event.tuplet.actual_notes)
+                            remaining = active_tuplet[1] - 1
+                            active_tuplet = None if remaining <= 0 else (active_tuplet[0], remaining)
+                        else:
+                            active_tuplet = None
+
+                        self._append_note_actions(
+                            actions,
+                            event,
+                            tick=event_tick,
+                            global_staff=global_staff,
+                            voice_index=voice_index,
+                        )
+
+        return actions
+
+    def to_batch(
+        self,
+        *,
+        include_structure: bool = True,
+        ignore_unsupported: bool = True,
+    ) -> ActionBatch:
+        try:
+            from maestro_musescore_bridge import ActionBatch
+        except ImportError as error:
+            raise _bridge_import_error("Score.to_batch()", error)
+        return ActionBatch(
+            self.to_actions(
+                include_structure=include_structure,
+                ignore_unsupported=ignore_unsupported,
+            )
+        )
+
+    def to_string(
+        self,
+        *,
+        include_structure: bool = True,
+        ignore_unsupported: bool = True,
+    ) -> str:
+        return json.dumps(
+            self.to_actions(
+                include_structure=include_structure,
+                ignore_unsupported=ignore_unsupported,
+            ),
+            indent=2,
+        ) + "\n"
+
+    def write(
+        self,
+        path: str | Path,
+        *,
+        include_structure: bool = True,
+        ignore_unsupported: bool = True,
+    ) -> Path:
         destination = Path(path)
-        destination.write_text(self.to_string(), encoding="utf-8")
+        destination.write_text(
+            self.to_string(
+                include_structure=include_structure,
+                ignore_unsupported=ignore_unsupported,
+            ),
+            encoding="utf-8",
+        )
         return destination
+
+    def apply(
+        self,
+        client: MuseScoreBridgeClient | None = None,
+        *,
+        fail_on_partial: bool = True,
+        include_structure: bool = True,
+        ignore_unsupported: bool = True,
+    ) -> Any:
+        actions = self.to_actions(
+            include_structure=include_structure,
+            ignore_unsupported=ignore_unsupported,
+        )
+        if client is None:
+            try:
+                from maestro_musescore_bridge import MuseScoreBridgeClient
+            except ImportError as error:
+                raise _bridge_import_error("Score.apply()", error)
+            client = MuseScoreBridgeClient()
+        return client.apply_actions(actions, fail_on_partial=fail_on_partial)
 
     def _require_active_measure(self) -> int:
         if self.current_measure is None:
@@ -573,279 +845,221 @@ class Score:
         latest_measure = -1
         latest_value = None
         for candidate_measure, value in changes.items():
-            if (
-                candidate_measure < measure_number
-                and candidate_measure > latest_measure
-            ):
+            if candidate_measure < measure_number and candidate_measure > latest_measure:
                 latest_measure = candidate_measure
                 latest_value = value
         return latest_value
 
-    def _build_header(self, root: ET.Element) -> None:
+    def _append_metadata_actions(self, actions: list[dict[str, Any]]) -> None:
         if self.title:
-            work = ET.SubElement(root, "work")
-            _set_text(work, "work-title", self.title)
-            _set_text(root, "movement-title", self.title)
-
-        if self.composer or self.lyricist or self.rights:
-            identification = ET.SubElement(root, "identification")
-            if self.composer:
-                creator = _set_text(identification, "creator", self.composer)
-                creator.set("type", "composer")
-            if self.lyricist:
-                creator = _set_text(identification, "creator", self.lyricist)
-                creator.set("type", "lyricist")
-            if self.rights:
-                _set_text(identification, "rights", self.rights)
-
-    def _build_part_list(self, root: ET.Element) -> None:
-        part_list = ET.SubElement(root, "part-list")
-        for part in self.parts:
-            score_part = ET.SubElement(part_list, "score-part", id=part.part_id)
-            _set_text(score_part, "part-name", part.name)
-            if part.abbreviation:
-                _set_text(score_part, "part-abbreviation", part.abbreviation)
-            score_instrument = ET.SubElement(
-                score_part, "score-instrument", id=f"{part.part_id}-I1"
+            actions.append(
+                {"kind": "set_header_text", "type": "title", "text": self.title}
             )
-            _set_text(score_instrument, "instrument-name", part.instrument_name)
+        if self.composer:
+            actions.append(
+                {"kind": "set_header_text", "type": "composer", "text": self.composer}
+            )
+            actions.append(
+                {"kind": "set_meta_tag", "tag": "composer", "value": self.composer}
+            )
+        if self.lyricist:
+            actions.append(
+                {"kind": "set_header_text", "type": "poet", "text": self.lyricist}
+            )
+            actions.append(
+                {"kind": "set_meta_tag", "tag": "lyricist", "value": self.lyricist}
+            )
+        if self.rights:
+            actions.append(
+                {"kind": "set_meta_tag", "tag": "rights", "value": self.rights}
+            )
 
-    def _compute_divisions(self) -> int:
-        durations: list[Fraction] = []
+    def _append_structure_actions(self, actions: list[dict[str, Any]]) -> None:
+        for part in self.parts[1:]:
+            payload: dict[str, Any] = {"kind": "add_part"}
+            if part.bridge_instrument_id:
+                payload["instrumentId"] = part.bridge_instrument_id
+            elif part.bridge_musicxml_id:
+                payload["musicXmlId"] = part.bridge_musicxml_id
+            else:
+                payload["instrumentId"] = "piano"
+            actions.append(payload)
+
+        additional_measures = max(0, self._max_measure - 1)
+        if additional_measures:
+            actions.append({"kind": "append_measures", "count": additional_measures})
+
+    def _measure_start_ticks(self) -> dict[int, int]:
+        ticks: dict[int, int] = {}
+        current_time = self._time_changes.get(1, DEFAULT_TIME_SIGNATURE)
+        current_tick = 0
+        for measure_number in range(1, self._max_measure + 1):
+            if measure_number in self._time_changes:
+                current_time = self._time_changes[measure_number]
+            ticks[measure_number] = current_tick
+            current_tick += _measure_length_ticks(*current_time)
+        return ticks
+
+    def _part_staff_offsets(self) -> dict[str, int]:
+        offsets: dict[str, int] = {}
+        running = 0
         for part in self.parts:
-            for measure in part.measures.values():
-                for stream in measure.streams.values():
-                    if stream.offset:
-                        durations.append(stream.offset)
-                    for event in stream.events:
-                        if isinstance(event, NoteEvent):
-                            durations.append(event.duration)
-                            durations.append(event.offset)
-                        else:
-                            durations.append(event.offset)
-        if not durations:
-            return 1
-        return _lcm_denominators(durations)
+            offsets[part.part_id] = running
+            running += part.staves
+        return offsets
 
-    def _build_measure(
-        self, part: Part, measure: MeasureState, parent: ET.Element, divisions: int
-    ) -> None:
-        measure_element = ET.SubElement(parent, "measure", number=str(measure.number))
-
-        attributes = self._build_attributes_if_needed(
-            part, measure, measure_element, divisions
-        )
-        if attributes is not None and len(attributes) == 0:
-            measure_element.remove(attributes)
-
-        self._append_barline(measure_element, measure.left_barline, location="left")
-        self._append_streams(measure_element, measure, divisions)
-        self._append_barline(measure_element, measure.right_barline, location="right")
-
-    def _build_attributes_if_needed(
+    def _append_direction_actions(
         self,
-        part: Part,
-        measure: MeasureState,
-        measure_element: ET.Element,
-        divisions: int,
-    ) -> ET.Element | None:
-        should_emit = (
-            measure.number == 1
-            or measure.number in self._time_changes
-            or measure.number in self._key_changes
-            or bool(measure.clefs)
-        )
-        if not should_emit:
-            return None
-
-        attributes = ET.SubElement(measure_element, "attributes")
-        if measure.number == 1:
-            _set_text(attributes, "divisions", divisions)
-            if part.staves > 1:
-                _set_text(attributes, "staves", part.staves)
-
-        if measure.number in self._key_changes:
-            fifths, mode = self._key_changes[measure.number]
-            key = ET.SubElement(attributes, "key")
-            _set_text(key, "fifths", fifths)
-            _set_text(key, "mode", mode)
-
-        if measure.number in self._time_changes:
-            beats, beat_type = self._time_changes[measure.number]
-            time = ET.SubElement(attributes, "time")
-            _set_text(time, "beats", beats)
-            _set_text(time, "beat-type", beat_type)
-
-        if measure.number == 1:
-            for staff_number in sorted(part.initial_clefs):
-                self._append_clef(
-                    attributes,
-                    part.initial_clefs[staff_number],
-                    staff_number,
-                    part.staves,
-                )
-
-        if measure.clefs and measure.number != 1:
-            for staff_number in sorted(measure.clefs):
-                self._append_clef(
-                    attributes, measure.clefs[staff_number], staff_number, part.staves
-                )
-
-        return attributes
-
-    @staticmethod
-    def _append_clef(
-        attributes: ET.Element, clef: Clef, staff_number: int, staff_count: int
+        actions: list[dict[str, Any]],
+        event: DirectionEvent,
+        *,
+        tick: int,
+        global_staff: int,
     ) -> None:
-        clef_element = ET.SubElement(attributes, "clef")
-        if staff_count > 1:
-            clef_element.set("number", str(staff_number))
-        _set_text(clef_element, "sign", clef.sign)
-        _set_text(clef_element, "line", clef.line)
-
-    def _append_streams(
-        self, measure_element: ET.Element, measure: MeasureState, divisions: int
-    ) -> None:
-        sorted_streams = sorted(
-            measure.streams.items(), key=lambda item: (item[0][0], item[0][1])
-        )
-        previous_stream_duration = Fraction(0)
-        first_stream = True
-        for _, stream in sorted_streams:
-            if not first_stream and previous_stream_duration > 0:
-                backup = ET.SubElement(measure_element, "backup")
-                _set_text(backup, "duration", int(previous_stream_duration * divisions))
-            first_stream = False
-
-            for event in sorted(
-                stream.events, key=lambda current: (current.offset, current.sequence)
-            ):
-                if isinstance(event, DirectionEvent):
-                    self._append_direction(measure_element, event)
-                else:
-                    self._append_note_event(measure_element, event, divisions)
-
-            previous_stream_duration = stream.offset
-
-    @staticmethod
-    def _append_direction(measure_element: ET.Element, event: DirectionEvent) -> None:
-        direction = ET.SubElement(measure_element, "direction")
-        if event.placement:
-            direction.set("placement", event.placement)
-
-        direction_type = ET.SubElement(direction, "direction-type")
         if event.kind == "tempo":
-            metronome = ET.SubElement(direction_type, "metronome")
-            _set_text(metronome, "beat-unit", event.data["beat_unit"])
-            _set_text(metronome, "per-minute", event.data["bpm"])
-            if event.data.get("text"):
-                _set_text(direction_type, "words", event.data["text"])
-        elif event.kind == "dynamic":
-            dynamics = ET.SubElement(direction_type, "dynamics")
-            mark = str(event.data["mark"])
-            if mark in SUPPORTED_DYNAMIC_TAGS:
-                ET.SubElement(dynamics, mark)
-            else:
-                _set_text(dynamics, "other-dynamics", mark)
-        elif event.kind == "text":
-            _set_text(direction_type, "words", event.data["content"])
-        elif event.kind == "wedge":
-            wedge = ET.SubElement(direction_type, "wedge")
-            wedge.set("type", str(event.data["type"]))
-        else:
-            raise ValueError(f"Unsupported direction type: {event.kind}")
-
-        _set_text(direction, "voice", event.voice)
-        if event.staff > 1:
-            _set_text(direction, "staff", event.staff)
-
-    @staticmethod
-    def _append_note_event(
-        measure_element: ET.Element, event: NoteEvent, divisions: int
-    ) -> None:
-        chord_pitches = (None,) if event.is_rest else event.pitches
-        for index, pitch in enumerate(chord_pitches):
-            note = ET.SubElement(measure_element, "note")
-            if index > 0:
-                ET.SubElement(note, "chord")
-
-            if event.is_rest:
-                ET.SubElement(note, "rest")
-            else:
-                pitch_element = ET.SubElement(note, "pitch")
-                _set_text(pitch_element, "step", pitch.step)
-                if pitch.alter is not None:
-                    _set_text(pitch_element, "alter", pitch.alter)
-                _set_text(pitch_element, "octave", pitch.octave)
-
-            _set_text(note, "duration", int(event.duration * divisions))
-
-            for tie_type in event.ties:
-                tie = ET.SubElement(note, "tie")
-                tie.set("type", tie_type)
-
-            _set_text(note, "voice", event.voice)
-            _set_text(note, "type", event.duration_name)
-
-            for _ in range(event.dots):
-                ET.SubElement(note, "dot")
-
-            if event.accidental:
-                _set_text(note, "accidental", event.accidental)
-
-            if event.tuplet is not None:
-                time_modification = ET.SubElement(note, "time-modification")
-                _set_text(time_modification, "actual-notes", event.tuplet.actual_notes)
-                _set_text(time_modification, "normal-notes", event.tuplet.normal_notes)
-                if event.tuplet.normal_type:
-                    _set_text(
-                        time_modification, "normal-type", event.tuplet.normal_type
-                    )
-
-            if event.staff > 1:
-                _set_text(note, "staff", event.staff)
-
-            for beam_number, beam_value in enumerate(event.beams, start=1):
-                beam = _set_text(note, "beam", beam_value)
-                beam.set("number", str(beam_number))
-
-            if event.ties or event.slurs or event.articulations:
-                notations = ET.SubElement(note, "notations")
-                for tie_type in event.ties:
-                    tied = ET.SubElement(notations, "tied")
-                    tied.set("type", tie_type)
-                for slur_type in event.slurs:
-                    slur = ET.SubElement(notations, "slur")
-                    slur.set("number", "1")
-                    slur.set("type", slur_type)
-                if event.articulations:
-                    articulations = ET.SubElement(notations, "articulations")
-                    for articulation_name in event.articulations:
-                        ET.SubElement(articulations, articulation_name)
-
-    @staticmethod
-    def _append_barline(
-        measure_element: ET.Element, barline: MeasureBarline, *, location: str
-    ) -> None:
-        if not any((barline.repeat, barline.ending_number, barline.ending_type)):
+            actions.append(
+                {
+                    "kind": "add_tempo",
+                    "bpm": event.data["bpm"],
+                    "text": event.data.get("text"),
+                    "tick": tick,
+                    "staff": global_staff,
+                }
+            )
             return
 
-        barline_element = ET.SubElement(measure_element, "barline", location=location)
-        if barline.repeat == "forward":
-            _set_text(barline_element, "bar-style", "heavy-light")
-        elif barline.repeat == "backward":
-            _set_text(barline_element, "bar-style", "light-heavy")
+        if event.kind == "dynamic":
+            actions.append(
+                {
+                    "kind": "add_dynamic",
+                    "text": event.data["mark"],
+                    "tick": tick,
+                    "staff": global_staff,
+                }
+            )
+            return
 
-        if barline.ending_number and barline.ending_type:
-            ending = ET.SubElement(barline_element, "ending")
-            ending.set("number", barline.ending_number)
-            ending.set("type", barline.ending_type)
+        if event.kind == "text":
+            action_kind = (
+                "add_expression_text"
+                if event.placement == "below"
+                else "add_staff_text"
+            )
+            actions.append(
+                {
+                    "kind": action_kind,
+                    "text": event.data["content"],
+                    "tick": tick,
+                    "staff": global_staff,
+                }
+            )
+            return
 
-        if barline.repeat:
-            repeat = ET.SubElement(barline_element, "repeat")
-            repeat.set("direction", barline.repeat)
-            if barline.times is not None:
-                repeat.set("times", str(barline.times))
+        if event.kind == "wedge":
+            text = _direction_text(str(event.data["type"]))
+            if text:
+                actions.append(
+                    {
+                        "kind": "add_expression_text",
+                        "text": text,
+                        "tick": tick,
+                        "staff": global_staff,
+                    }
+                )
+            return
+
+        raise ValueError(f"Unsupported direction type: {event.kind}")
+
+    def _append_note_actions(
+        self,
+        actions: list[dict[str, Any]],
+        event: NoteEvent,
+        *,
+        tick: int,
+        global_staff: int,
+        voice_index: int,
+    ) -> None:
+        base_action: dict[str, Any] = {
+            "tick": tick,
+            "staff": global_staff,
+            "voice": voice_index,
+        }
+        if event.dots:
+            base_action["dots"] = event.dots
+
+        if event.is_rest:
+            actions.append(
+                {
+                    "kind": "add_rest",
+                    "duration": event.duration_name,
+                    **base_action,
+                }
+            )
+        elif len(event.pitches) == 1:
+            actions.append(
+                {
+                    "kind": "add_note",
+                    "pitch": _pitch_to_string(event.pitches[0]),
+                    "duration": event.duration_name,
+                    **base_action,
+                }
+            )
+        else:
+            actions.append(
+                {
+                    "kind": "add_chord",
+                    "pitches": [_pitch_to_string(pitch) for pitch in event.pitches],
+                    "duration": event.duration_name,
+                    **base_action,
+                }
+            )
+
+        if event.accidental:
+            accidental_type = BRIDGE_ACCIDENTAL_TYPES.get(event.accidental.strip().lower())
+            if accidental_type is not None:
+                for note_index in range(len(event.pitches) or 1):
+                    actions.append(
+                        {
+                            "kind": "modify_note",
+                            "tick": tick,
+                            "staff": global_staff,
+                            "voice": voice_index,
+                            "noteIndex": note_index,
+                            "accidentalType": accidental_type,
+                        }
+                    )
+
+        if event.beams:
+            beam_mode = BRIDGE_BEAM_MODES.get(event.beams[0].strip().lower())
+            if beam_mode is not None:
+                actions.append(
+                    {
+                        "kind": "modify_chord",
+                        "tick": tick,
+                        "staff": global_staff,
+                        "voice": voice_index,
+                        "beamMode": beam_mode,
+                    }
+                )
+
+        for articulation in event.articulations:
+            if articulation in {"breath-mark", "caesura"}:
+                actions.append(
+                    {"kind": "add_breath", "tick": tick, "staff": global_staff}
+                )
+                continue
+            symbol = BRIDGE_ARTICULATION_SYMBOLS.get(articulation)
+            if symbol is None:
+                continue
+            actions.append(
+                {
+                    "kind": "add_articulation",
+                    "tick": tick,
+                    "staff": global_staff,
+                    "voice": voice_index,
+                    "symbol": symbol,
+                }
+            )
 
 
 class Part:
@@ -859,6 +1073,8 @@ class Part:
         instrument_name: str,
         staves: int,
         initial_clefs: dict[int, Clef],
+        bridge_instrument_id: str | None,
+        bridge_musicxml_id: str | None,
     ) -> None:
         self.score = score
         self.part_id = part_id
@@ -867,6 +1083,8 @@ class Part:
         self.instrument_name = instrument_name
         self.staves = staves
         self.initial_clefs = dict(initial_clefs)
+        self.bridge_instrument_id = bridge_instrument_id
+        self.bridge_musicxml_id = bridge_musicxml_id
         self.measures: dict[int, MeasureState] = {}
         self._event_sequence = 0
         self._voice_cache: dict[tuple[int, int], VoiceCursor] = {}

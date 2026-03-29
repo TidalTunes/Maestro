@@ -1,8 +1,8 @@
 # API Reference
 
-This document describes the current public API of `maestroxml`.
+This document describes the current `maestroxml` API.
 
-For workflow guidance, see [Getting Started](getting-started.md). For larger scores and generation patterns, see [Examples](examples.md).
+For workflow guidance, see [Getting Started](getting-started.md). For larger examples, see [Examples](examples.md).
 
 ## Public Imports
 
@@ -31,14 +31,14 @@ Arguments:
 - `path`: path to a MusicXML file
 - `output_path`: optional path string to include in the generated `score.write(...)` call
 
-Returns a Python source string that recreates the supported parts of the MusicXML file using the `maestroxml` API.
+Returns editable Python source that recreates the supported MusicXML content with the `maestroxml` API.
 
 Supported input roots:
 
 - `score-partwise`
 - `score-timewise`
 
-The importer is intentionally lossy. Unsupported notation is ignored instead of being expressed as raw XML.
+The importer is intentionally lossy. Unsupported MusicXML details are dropped instead of being represented as raw XML escape hatches.
 
 ### `musicxml_string_to_python(...)`
 
@@ -46,7 +46,7 @@ The importer is intentionally lossy. Unsupported notation is ignored instead of 
 musicxml_string_to_python(xml_text, *, output_path=None)
 ```
 
-Like `musicxml_to_python(...)`, but accepts MusicXML text directly instead of reading a file.
+Same as `musicxml_to_python(...)`, but accepts MusicXML text directly.
 
 ## Score
 
@@ -58,10 +58,10 @@ Score(*, title=None, composer=None, lyricist=None, rights=None)
 
 Arguments:
 
-- `title`: score title; written to both `<work-title>` and `<movement-title>`
-- `composer`: written as a MusicXML creator with `type="composer"`
-- `lyricist`: written as a MusicXML creator with `type="lyricist"`
-- `rights`: written to `<rights>`
+- `title`: score title
+- `composer`: composer metadata
+- `lyricist`: lyricist metadata
+- `rights`: rights/copyright metadata
 
 ### `add_part(...)`
 
@@ -80,16 +80,16 @@ Creates and returns a `Part`.
 
 Arguments:
 
-- `name`: displayed part name
+- `name`: logical part name used by the builder
 - `instrument`: optional preset key such as `"violin"` or `"piano"`
-- `abbreviation`: optional override for the printed part abbreviation
+- `abbreviation`: optional stored abbreviation
 - `staves`: optional staff count override
 - `clefs`: optional iterable of clef names or `(sign, line)` tuples
 
 Notes:
 
-- If `instrument` matches a preset, the preset fills in abbreviation, staff count, clefs, and instrument name unless you override them.
-- If you add a part after measures already exist, empty measures are created automatically so all parts stay synchronized.
+- Presets fill in default staves and clefs unless overridden.
+- Parts added after measures already exist are backfilled with empty measure state so the score stays synchronized.
 
 ### `measure(...)`
 
@@ -103,7 +103,7 @@ Behavior:
 
 - `score.measure(1)` selects measure 1.
 - `score.measure()` advances by one measure.
-- The first call to `score.measure()` with no argument starts at measure 1.
+- The first `score.measure()` with no argument starts at measure 1.
 
 ### `time_signature(...)`
 
@@ -119,7 +119,7 @@ Accepted forms:
 - `score.time_signature([5, 4])`
 - `score.time_signature(7, 8)`
 
-This is score-level sticky state. Once set, it stays active until changed.
+Sticky score-level state: once set, it stays active until changed.
 
 ### `key_signature(...)`
 
@@ -134,33 +134,112 @@ Accepted forms:
 - `score.key_signature(2, mode="major")`
 - `score.key_signature(-3, mode="minor")`
 
-This is score-level sticky state. Once set, it stays active until changed.
+Sticky score-level state: once set, it stays active until changed.
 
-### `to_string()`
-
-```python
-xml_text = score.to_string()
-```
-
-Returns the full MusicXML document as a string, including:
-
-- XML declaration
-- MusicXML 4.0 doctype
-- `<score-partwise version="4.0">`
-
-Raises `ValueError` if the score has no parts or no measures.
-
-### `write(path)`
+### `unsupported_features()`
 
 ```python
-path_obj = score.write("piece.musicxml")
+features = score.unsupported_features()
 ```
 
-Writes the MusicXML document to disk and returns a `Path`.
+Returns a sorted list of notation features currently accepted by the builder but not fully written by the current MuseScore bridge backend.
+
+Typical values include:
+
+- `"ties"`
+- `"slurs"`
+- `"wedge spanners"`
+- `"repeat start barlines"`
+- `"repeat end barlines"`
+- `"volta endings"`
+- `"clef changes"`
+- `"some articulations"`
+
+### `to_actions(...)`
+
+```python
+actions = score.to_actions(
+    *,
+    include_structure=True,
+    ignore_unsupported=True,
+)
+```
+
+Returns a list of action dictionaries suitable for `maestro-musescore-bridge`.
+
+Arguments:
+
+- `include_structure`:
+  - when `True`, include bridge actions that append later parts and extra measures
+  - this assumes the open MuseScore score already has a first part matching the first `maestroxml` part
+- `ignore_unsupported`:
+  - when `True`, unsupported features are skipped or approximated
+  - when `False`, `ValueError` is raised if unsupported features are present
+
+### `to_batch(...)`
+
+```python
+batch = score.to_batch(
+    *,
+    include_structure=True,
+    ignore_unsupported=True,
+)
+```
+
+Builds and returns a `maestro_musescore_bridge.ActionBatch`.
+
+Requires `maestro-musescore-bridge` to be importable.
+
+### `to_string(...)`
+
+```python
+json_text = score.to_string(
+    *,
+    include_structure=True,
+    ignore_unsupported=True,
+)
+```
+
+Returns the bridge action plan as pretty-printed JSON text.
+
+### `write(...)`
+
+```python
+path_obj = score.write(
+    "piece-actions.json",
+    include_structure=True,
+    ignore_unsupported=True,
+)
+```
+
+Writes the JSON action plan to disk and returns the resulting `Path`.
+
+### `apply(...)`
+
+```python
+result = score.apply(
+    client=None,
+    *,
+    fail_on_partial=True,
+    include_structure=True,
+    ignore_unsupported=True,
+)
+```
+
+Applies the score to a live MuseScore score through `maestro-musescore-bridge`.
+
+Arguments:
+
+- `client`: optional `MuseScoreBridgeClient`; if omitted, `maestroxml` creates one
+- `fail_on_partial`: passed through to `client.apply_actions(...)`
+- `include_structure`: same meaning as in `to_actions(...)`
+- `ignore_unsupported`: same meaning as in `to_actions(...)`
+
+Returns the bridge result payload.
 
 ## Part
 
-`Part` is the ergonomic API for the common case: voice 1 on staff 1.
+`Part` is the convenience API for the common case: voice 1 on staff 1.
 
 ### `measure(...)`
 
@@ -168,39 +247,18 @@ Writes the MusicXML document to disk and returns a `Path`.
 part.measure(number=None)
 ```
 
-Convenience wrapper around `score.measure(...)`. It returns the `Part`.
+Convenience wrapper around `score.measure(...)`.
 
-### `note(...)`
+### Note Entry Methods
 
 ```python
 part.note(duration, pitch, **kwargs)
-```
-
-Adds one note to voice 1, staff 1.
-
-### `notes(...)`
-
-```python
 part.notes(duration, pitches, **kwargs)
-```
-
-Adds a sequence of single notes with the same duration and options.
-
-### `rest(...)`
-
-```python
 part.rest(duration, **kwargs)
-```
-
-Adds a rest to voice 1, staff 1.
-
-### `chord(...)`
-
-```python
 part.chord(duration, pitches, **kwargs)
 ```
 
-Adds a simultaneous chord to voice 1, staff 1.
+These methods write to voice 1, staff 1.
 
 ### Direction Methods
 
@@ -217,25 +275,14 @@ Supported wedge types:
 - `"diminuendo"`
 - `"stop"`
 
-### `clef(...)`
+### Structure Methods
 
 ```python
 part.clef(clef, staff=1)
-```
-
-Changes the clef for the active measure on the selected staff.
-
-Accepted values:
-
-- preset names: `"treble"`, `"bass"`, `"alto"`, `"tenor"`, `"percussion"`
-- explicit tuples: `("G", 2)`, `("F", 4)`, `("C", 3)`
-
-### Repeat Methods
-
-```python
 part.repeat_start()
 part.repeat_end(times=None)
 part.ending(number, type)
+part.voice(number, staff=1)
 ```
 
 Supported ending types:
@@ -244,149 +291,41 @@ Supported ending types:
 - `"stop"`
 - `"discontinue"`
 
-### `voice(...)`
-
-```python
-cursor = part.voice(number, staff=1)
-```
-
-Returns a `VoiceCursor` for the given voice/staff stream.
-
-Use it for:
-
-- piano right and left hands
-- polyphonic writing in a single staff
-- staff-specific directions
-
 ## VoiceCursor
 
-`VoiceCursor` exposes the same note/chord/rest and direction methods as `Part`, but writes into a specific voice/staff stream.
+Use `part.voice(number, staff=...)` when a part needs independent voice or staff streams.
 
-Example:
+`VoiceCursor` supports the same note/rest/chord and direction methods as `Part`, but writes into the selected voice and staff.
 
-```python
-piano = score.add_part("Piano", instrument="piano")
-right = piano.voice(1, staff=1)
-left = piano.voice(1, staff=2)
+## Shared Note Parameters
 
-right.notes("quarter", ["C4", "E4", "G4", "C5"])
-left.note("half", "C2")
-left.note("half", "G2")
-```
+These keyword arguments are accepted by `note(...)` and `chord(...)`, and partly by `rest(...)`.
 
-## Common Note And Chord Keyword Arguments
+### Duration And Rhythm
 
-These kwargs are accepted by `VoiceCursor.note(...)` and `VoiceCursor.chord(...)`. The `Part` methods forward directly to the same implementation.
+- `dots=int`
+- `tuplet=(actual, normal)`
+- `tuplet=(actual, normal, normal_type)`
 
-### `dots`
+Supported duration names:
 
-```python
-part.note("quarter", "C5", dots=1)
-```
+- `whole`
+- `half`
+- `quarter`
+- `eighth`
+- `16th`
+- `32nd`
+- `64th`
 
-Adds one or more dots to the base duration.
+### Notation
 
-### `tuplet`
+- `tie="start" | "stop" | ("stop", "start")`
+- `slur="start" | "stop" | ("stop", "start")`
+- `articulations=[...]`
+- `accidental="sharp" | "flat" | "natural" | ...`
+- `beams=["begin", "continue", "end"]`
 
-```python
-part.note("eighth", "C5", tuplet=(3, 2))
-part.note("16th", "D5", tuplet=(5, 4, "16th"))
-```
-
-Accepted forms:
-
-- `(actual_notes, normal_notes)`
-- `(actual_notes, normal_notes, normal_type)`
-
-### `tie`
-
-```python
-part.note("quarter", "A4", tie="start")
-part.note("quarter", "A4", tie="stop")
-part.note("quarter", "A4", tie=("stop", "start"))
-part.note("quarter", "A4", tie="continue")
-```
-
-`"continue"` is shorthand for `("stop", "start")`.
-
-### `slur`
-
-```python
-part.note("quarter", "A4", slur="start")
-part.note("quarter", "A4", slur="stop")
-part.note("quarter", "A4", slur=("stop", "start"))
-part.note("quarter", "A4", slur="continue")
-```
-
-`"continue"` is shorthand for `("stop", "start")`.
-
-### `articulations`
-
-```python
-part.note("quarter", "C5", articulations=["staccato", "accent"])
-```
-
-Supported articulations:
-
-- `accent`
-- `strong-accent`
-- `staccato`
-- `tenuto`
-- `detached-legato`
-- `staccatissimo`
-- `spiccato`
-- `scoop`
-- `plop`
-- `doit`
-- `falloff`
-- `breath-mark`
-- `caesura`
-- `stress`
-- `unstress`
-- `soft-accent`
-
-### `accidental`
-
-```python
-part.note("quarter", "F5", accidental="natural")
-```
-
-This controls the explicit MusicXML `<accidental>` element. It is separate from pitch parsing and is passed through as written.
-
-### `beams`
-
-```python
-part.note("eighth", "C5", beams=["begin"])
-part.note("eighth", "D5", beams=["continue"])
-part.note("eighth", "E5", beams=["end"])
-```
-
-Beam tags are passed through in order as MusicXML `<beam number="...">` elements.
-
-## Rest Keyword Arguments
-
-`rest(...)` accepts:
-
-- `dots`
-- `tuplet`
-- `beams`
-
-Example:
-
-```python
-part.rest("quarter", dots=1)
-part.rest("eighth", tuplet=(3, 2))
-```
-
-## Supported Pitch Syntax
-
-Pitch strings are parsed as:
-
-- step letter: `A` through `G`
-- optional accidental markers: `#`, `##`, `b`, `bb`, or `n`
-- octave number
-
-Examples:
+Supported pitch strings:
 
 - `C4`
 - `F#5`
@@ -395,91 +334,15 @@ Examples:
 - `E##5`
 - `Gbb2`
 
-## Supported Duration Names
+## Current Bridge Limits
 
-- `whole`
-- `half`
-- `quarter`
-- `eighth`
-- `8th`
-- `16th`
-- `sixteenth`
-- `32nd`
-- `thirty-second`
-- `64th`
-- `sixty-fourth`
+The builder still accepts more notation than the current MuseScore bridge/plugin can fully materialize. Today `maestroxml` does not promise exact bridge output for:
 
-## Instrument Presets
+- ties and slurs
+- wedge spanners
+- repeat start/end barlines
+- volta endings
+- clef changes after the initial setup
+- some articulations and engraving-only details
 
-Preset keys and defaults:
-
-| preset | abbreviation | staves | clefs |
-| --- | --- | ---: | --- |
-| `violin` | `Vln.` | 1 | `treble` |
-| `viola` | `Vla.` | 1 | `alto` |
-| `cello` | `Vc.` | 1 | `bass` |
-| `piano` | `Pno.` | 2 | `treble`, `bass` |
-| `flute` | `Fl.` | 1 | `treble` |
-| `clarinet` | `Cl.` | 1 | `treble` |
-| `voice` | `V.` | 1 | `treble` |
-
-## Supported Dynamic Tags
-
-The package emits MusicXML dynamic tags for the following values:
-
-- `pppppp`
-- `ppppp`
-- `pppp`
-- `ppp`
-- `pp`
-- `p`
-- `mp`
-- `mf`
-- `f`
-- `ff`
-- `fff`
-- `ffff`
-- `fffff`
-- `ffffff`
-- `fp`
-- `fz`
-- `sf`
-- `sfp`
-- `sfpp`
-- `sfz`
-- `sffz`
-- `rf`
-- `rfz`
-- `sfzp`
-- `pf`
-
-If you pass another dynamic string, it is emitted as `<other-dynamics>`.
-
-## MusicXML Behavior Notes
-
-- Measures are serialized for every part from 1 through the highest measure number used anywhere in the score.
-- Empty measures are still emitted.
-- `<attributes>` are only emitted in measure 1 and whenever time, key, or clef changes.
-- `<backup>` is emitted automatically when multiple streams must share the same measure timeline.
-- Divisions are computed automatically from the rhythmic material present in the score.
-
-## Current Limits
-
-`maestroxml` currently does not provide:
-
-- MusicXML parsing or round-tripping
-- `.mxl` packaging
-- lyric handling
-- harmony/chord-symbol objects
-- grace notes
-- transposing instrument support
-- microtonal notation
-- advanced page or system layout controls
-- validation that each measure adds up to the current time signature
-
-Importer-specific limitations:
-
-- unsupported MusicXML elements are skipped
-- imported code aims for a simple editable representation, not exact source preservation
-- score-wide time/key are inferred from the first available measure-level values
-- measure numbers may be normalized when the source numbering cannot be represented cleanly
+Those features remain useful in the builder model and importer output, but the bridge backend may skip or approximate them.

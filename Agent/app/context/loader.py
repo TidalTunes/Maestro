@@ -5,11 +5,6 @@ from pathlib import Path
 from app.config import Settings
 
 
-SKILL_FILES = (
-    ("Maestro skill", "SKILL.md"),
-    ("Maestro skill API patterns", "references/api-patterns.md"),
-    ("Maestro skill examples", "references/examples.md"),
-)
 ROOT_DOC_FILES = (("Package README", "README.md"),)
 DOC_FILES = (
     ("Getting started", "getting-started.md"),
@@ -32,29 +27,13 @@ def _format_block(label: str, path: Path) -> str:
     return f"## {label}\n{_read_text(path)}"
 
 
-def _load_skill_blocks(settings: Settings) -> list[str]:
-    if not settings.maestro_skill_dir.is_dir():
-        raise ReferenceLoadError(f"Maestro skill directory not found: {settings.maestro_skill_dir}")
-
-    blocks: list[str] = []
-    for label, relative in SKILL_FILES:
-        blocks.append(_format_block(label, settings.maestro_skill_dir / relative))
-    return blocks
-
-
-def _load_doc_blocks(settings: Settings) -> list[str]:
+def load_reference_corpus(settings: Settings) -> str:
     if not settings.maestro_docs_dir.is_dir():
         raise ReferenceLoadError(f"Maestro docs directory not found: {settings.maestro_docs_dir}")
 
-    chunks: list[str] = []
+    sections: list[str] = []
     for label, relative in ROOT_DOC_FILES:
-        chunks.append(_format_block(label, (settings.root_dir / relative).resolve()))
+        sections.append(_format_block(label, (settings.root_dir / relative).resolve()))
     for label, relative in DOC_FILES:
-        chunks.append(_format_block(label, (settings.maestro_docs_dir / relative).resolve()))
-    return chunks
-
-
-def load_reference_corpus(settings: Settings) -> str:
-    sections = _load_skill_blocks(settings)
-    sections.extend(_load_doc_blocks(settings))
+        sections.append(_format_block(label, (settings.maestro_docs_dir / relative).resolve()))
     return "\n\n".join(sections)

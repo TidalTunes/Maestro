@@ -1,23 +1,37 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from maestroxml import Score, musicxml_string_to_python, musicxml_to_python
+
+
+class FakeClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[dict[str, object]], bool]] = []
+
+    def apply_actions(
+        self, actions: list[dict[str, object]], *, fail_on_partial: bool = True
+    ) -> dict[str, object]:
+        self.calls.append((actions, fail_on_partial))
+        return {
+            "command_count": len(actions),
+            "all_ok": True,
+            "results": [{"ok": True} for _ in actions],
+        }
 
 
 class MaestroXMLTests(unittest.TestCase):
     def golden(self, name: str) -> str:
         return (ROOT / "tests" / "golden" / name).read_text(encoding="utf-8")
-
-    def parse(self, xml_text: str) -> ET.Element:
-        return ET.fromstring(xml_text.split("\n", 2)[2])
 
     def exec_generated(self, code: str) -> Score:
         namespace: dict[str, object] = {}
@@ -26,25 +40,17 @@ class MaestroXMLTests(unittest.TestCase):
         self.assertIsInstance(score, Score)
         return score
 
-    def test_hello_world_score_matches_golden(self) -> None:
+    def build_hello_world(self) -> Score:
         score = Score(title="Hello World", composer="Composer")
         flute = score.add_part("Flute", instrument="flute")
-
         score.measure(1)
         score.time_signature("4/4")
         score.key_signature("C major")
         flute.tempo(96, text="Brightly")
         flute.notes("quarter", ["C5", "D5", "E5", "F5"])
+        return score
 
-        actual = score.to_string()
-        self.assertMultiLineEqual(actual, self.golden("hello_world.musicxml"))
-
-        root = self.parse(actual)
-        self.assertEqual(root.findtext("./part-list/score-part/part-name"), "Flute")
-        self.assertEqual(root.findtext("./part/measure/attributes/time/beats"), "4")
-        self.assertEqual(len(root.findall(".//measure")), 1)
-
-    def test_string_quartet_workflow_matches_golden(self) -> None:
+    def build_quartet(self) -> Score:
         score = Score(title="My Piece", composer="Me")
         violin1 = score.add_part("Violin I", instrument="violin")
         violin2 = score.add_part("Violin II", instrument="violin")
@@ -68,15 +74,9 @@ class MaestroXMLTests(unittest.TestCase):
             viola.note("whole", chord[1])
             violin2.note("whole", chord[2])
 
-        actual = score.to_string()
-        self.assertMultiLineEqual(actual, self.golden("quartet.musicxml"))
+        return score
 
-        root = self.parse(actual)
-        measures = root.findall("./part[@id='P1']/measure")
-        self.assertEqual([measure.attrib["number"] for measure in measures], [str(i) for i in range(1, 9)])
-        self.assertEqual(len(root.findall("./part[@id='P2']/measure")), 8)
-
-    def test_piano_multistaff_uses_backup(self) -> None:
+    def build_piano(self) -> Score:
         score = Score(title="Piano Sketch")
         piano = score.add_part("Piano", instrument="piano")
 
@@ -90,16 +90,9 @@ class MaestroXMLTests(unittest.TestCase):
         right.notes("quarter", ["G4", "A4", "B4", "D5"])
         left.note("half", "G2")
         left.note("half", "D3")
+        return score
 
-        actual = score.to_string()
-        self.assertMultiLineEqual(actual, self.golden("piano_backup.musicxml"))
-
-        root = self.parse(actual)
-        self.assertEqual(root.findtext(".//backup/duration"), "4")
-        self.assertEqual(root.findtext(".//attributes/staves"), "2")
-        self.assertEqual(len(root.findall(".//note/staff")), 2)
-
-    def test_notations_and_directions_match_golden(self) -> None:
+    def build_notations(self) -> Score:
         score = Score(title="Notation Study")
         violin = score.add_part("Violin", instrument="violin")
 
@@ -109,24 +102,29 @@ class MaestroXMLTests(unittest.TestCase):
         violin.tempo(72, text="Adagio")
         violin.dynamic("mp")
         violin.text("dolce")
-        violin.note("quarter", "A4", tie="start", slur="start", articulations=["staccato"])
+        violin.note(
+            "quarter",
+            "A4",
+            tie="start",
+            slur="start",
+            articulations=["staccato"],
+        )
         violin.note("quarter", "B4")
         violin.note("quarter", "C#5")
 
         score.measure(2)
-        violin.note("quarter", "A4", tie="stop", slur="stop", articulations=["accent"])
+        violin.note(
+            "quarter",
+            "A4",
+            tie="stop",
+            slur="stop",
+            articulations=["accent"],
+        )
         violin.rest("quarter")
         violin.chord("quarter", ["D5", "F#5", "A5"])
+        return score
 
-        actual = score.to_string()
-        self.assertMultiLineEqual(actual, self.golden("notations.musicxml"))
-
-        root = self.parse(actual)
-        self.assertIsNotNone(root.find(".//direction/direction-type/metronome"))
-        self.assertEqual(len(root.findall(".//notations/slur")), 2)
-        self.assertEqual(len(root.findall(".//notations/tied")), 2)
-
-    def test_repeats_and_endings_match_golden(self) -> None:
+    def build_repeats(self) -> Score:
         score = Score(title="Repeat Study")
         flute = score.add_part("Flute", instrument="flute")
 
@@ -151,30 +149,9 @@ class MaestroXMLTests(unittest.TestCase):
         score.measure(5)
         flute.ending(2, "stop")
         flute.notes("quarter", ["D6", "E6"])
+        return score
 
-        actual = score.to_string()
-        self.assertMultiLineEqual(actual, self.golden("repeats.musicxml"))
-
-        root = self.parse(actual)
-        self.assertEqual(root.find("./part/measure/barline/repeat").attrib["direction"], "forward")
-        endings = root.findall(".//ending")
-        self.assertEqual([ending.attrib["number"] for ending in endings], ["1", "1", "2", "2"])
-
-    def test_write_matches_to_string(self) -> None:
-        score = Score(title="Write Test")
-        flute = score.add_part("Flute", instrument="flute")
-        score.measure(1)
-        score.time_signature("4/4")
-        flute.note("whole", "C5")
-
-        expected = score.to_string()
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "write_test.musicxml"
-            returned = score.write(path)
-            self.assertEqual(returned, path)
-            self.assertEqual(path.read_text(encoding="utf-8"), expected)
-
-    def test_pitch_key_and_duration_math(self) -> None:
+    def build_duration_math(self) -> Score:
         score = Score(title="Math Test")
         flute = score.add_part("Flute", instrument="flute")
         score.measure(1)
@@ -184,21 +161,259 @@ class MaestroXMLTests(unittest.TestCase):
         flute.note("eighth", "Bb4", tuplet=(3, 2))
         flute.note("eighth", "C5", tuplet=(3, 2))
         flute.note("eighth", "D5", tuplet=(3, 2))
+        return score
 
-        root = self.parse(score.to_string())
-        self.assertEqual(root.findtext(".//key/fifths"), "0")
-        self.assertEqual(root.findtext(".//key/mode"), "minor")
-        self.assertEqual(root.findtext(".//divisions"), "6")
+    def test_hello_world_score_maps_to_bridge_actions(self) -> None:
+        score = self.build_hello_world()
 
-        notes = root.findall(".//note")
-        self.assertEqual(notes[0].findtext("pitch/alter"), "1")
-        self.assertEqual(notes[0].findtext("duration"), "9")
-        self.assertEqual(notes[1].findtext("pitch/alter"), "-1")
-        self.assertEqual([note.findtext("duration") for note in notes[1:]], ["2", "2", "2"])
-        self.assertEqual(notes[1].findtext("time-modification/actual-notes"), "3")
-        self.assertEqual(notes[1].findtext("time-modification/normal-notes"), "2")
+        self.assertEqual(
+            score.to_actions(),
+            [
+                {"kind": "set_header_text", "type": "title", "text": "Hello World"},
+                {"kind": "set_header_text", "type": "composer", "text": "Composer"},
+                {"kind": "set_meta_tag", "tag": "composer", "value": "Composer"},
+                {
+                    "kind": "add_time_signature",
+                    "numerator": 4,
+                    "denominator": 4,
+                    "tick": 0,
+                    "staff": 0,
+                },
+                {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+                {
+                    "kind": "add_tempo",
+                    "bpm": 96,
+                    "text": "Brightly",
+                    "tick": 0,
+                    "staff": 0,
+                },
+                {
+                    "kind": "add_note",
+                    "pitch": "C5",
+                    "duration": "quarter",
+                    "tick": 0,
+                    "staff": 0,
+                    "voice": 0,
+                },
+                {
+                    "kind": "add_note",
+                    "pitch": "D5",
+                    "duration": "quarter",
+                    "tick": 480,
+                    "staff": 0,
+                    "voice": 0,
+                },
+                {
+                    "kind": "add_note",
+                    "pitch": "E5",
+                    "duration": "quarter",
+                    "tick": 960,
+                    "staff": 0,
+                    "voice": 0,
+                },
+                {
+                    "kind": "add_note",
+                    "pitch": "F5",
+                    "duration": "quarter",
+                    "tick": 1440,
+                    "staff": 0,
+                    "voice": 0,
+                },
+            ],
+        )
+        self.assertEqual(score.unsupported_features(), [])
 
-    def test_musicxml_string_to_python_round_trips_hello_world(self) -> None:
+    def test_string_quartet_actions_include_structure_and_staff_routing(self) -> None:
+        score = self.build_quartet()
+        actions = score.to_actions()
+
+        add_part_actions = [action for action in actions if action["kind"] == "add_part"]
+        self.assertEqual(
+            add_part_actions,
+            [
+                {"kind": "add_part", "instrumentId": "violin"},
+                {"kind": "add_part", "instrumentId": "viola"},
+                {"kind": "add_part", "instrumentId": "violoncello"},
+            ],
+        )
+        self.assertIn({"kind": "append_measures", "count": 7}, actions)
+
+        note_actions = [action for action in actions if action["kind"] == "add_note"]
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "G3",
+                "duration": "whole",
+                "tick": 3840,
+                "staff": 3,
+                "voice": 0,
+            },
+            note_actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "D5",
+                "duration": "whole",
+                "tick": 3840,
+                "staff": 1,
+                "voice": 0,
+            },
+            note_actions,
+        )
+
+    def test_piano_multistaff_routes_left_hand_to_second_staff(self) -> None:
+        score = self.build_piano()
+        note_actions = [action for action in score.to_actions() if action["kind"] == "add_note"]
+
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "G2",
+                "duration": "half",
+                "tick": 0,
+                "staff": 1,
+                "voice": 0,
+            },
+            note_actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "D3",
+                "duration": "half",
+                "tick": 960,
+                "staff": 1,
+                "voice": 0,
+            },
+            note_actions,
+        )
+
+    def test_notations_map_supported_marks_and_report_unsupported_spanners(self) -> None:
+        score = self.build_notations()
+        actions = score.to_actions()
+
+        self.assertEqual(score.unsupported_features(), ["slurs", "ties"])
+        self.assertIn(
+            {"kind": "add_dynamic", "text": "mp", "tick": 0, "staff": 0},
+            actions,
+        )
+        self.assertIn(
+            {"kind": "add_staff_text", "text": "dolce", "tick": 0, "staff": 0},
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_articulation",
+                "tick": 0,
+                "staff": 0,
+                "voice": 0,
+                "symbol": "articStaccatoAbove",
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_chord",
+                "pitches": ["D5", "F#5", "A5"],
+                "duration": "quarter",
+                "tick": 2400,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+
+    def test_repeats_are_reported_and_keep_repeat_count_hint(self) -> None:
+        score = self.build_repeats()
+        actions = score.to_actions()
+
+        self.assertEqual(
+            score.unsupported_features(),
+            ["repeat end barlines", "repeat start barlines", "volta endings"],
+        )
+        self.assertIn(
+            {"kind": "modify_measure", "tick": 1920, "repeatCount": 2},
+            actions,
+        )
+
+    def test_write_matches_to_string(self) -> None:
+        score = self.build_hello_world()
+        expected = score.to_string()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "write_test.json"
+            returned = score.write(path)
+            self.assertEqual(returned, path)
+            self.assertEqual(path.read_text(encoding="utf-8"), expected)
+            self.assertIsInstance(json.loads(expected), list)
+
+    def test_apply_uses_client_with_generated_actions(self) -> None:
+        score = self.build_hello_world()
+        client = FakeClient()
+
+        result = score.apply(client)
+
+        self.assertEqual(result["command_count"], len(score.to_actions()))
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.calls[0][0], score.to_actions())
+        self.assertTrue(client.calls[0][1])
+
+    def test_pitch_key_and_duration_math(self) -> None:
+        score = self.build_duration_math()
+        actions = score.to_actions()
+
+        self.assertIn(
+            {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "F#5",
+                "duration": "quarter",
+                "dots": 1,
+                "tick": 0,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_tuplet",
+                "tick": 720,
+                "staff": 0,
+                "voice": 0,
+                "actual": 3,
+                "normal": 2,
+                "totalDuration": "quarter",
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "Bb4",
+                "duration": "eighth",
+                "tick": 720,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "D5",
+                "duration": "eighth",
+                "tick": 1040,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+
+    def test_musicxml_string_to_python_recreates_hello_world_builder(self) -> None:
         xml_text = self.golden("hello_world.musicxml")
         code = musicxml_string_to_python(xml_text)
 
@@ -208,15 +423,19 @@ class MaestroXMLTests(unittest.TestCase):
         self.assertIn('score.time_signature("4/4")', code)
 
         score = self.exec_generated(code)
-        self.assertEqual(score.to_string(), xml_text)
+        self.assertEqual(score.to_actions(), self.build_hello_world().to_actions())
 
-    def test_musicxml_string_to_python_round_trips_multistaff_and_repeats(self) -> None:
-        for fixture_name in ("piano_backup.musicxml", "repeats.musicxml", "notations.musicxml"):
+    def test_musicxml_string_to_python_recreates_multistaff_and_repeats_builder(self) -> None:
+        fixtures = {
+            "piano_backup.musicxml": self.build_piano,
+            "repeats.musicxml": self.build_repeats,
+            "notations.musicxml": self.build_notations,
+        }
+        for fixture_name, builder in fixtures.items():
             with self.subTest(fixture=fixture_name):
-                xml_text = self.golden(fixture_name)
-                code = musicxml_string_to_python(xml_text)
+                code = musicxml_string_to_python(self.golden(fixture_name))
                 score = self.exec_generated(code)
-                self.assertEqual(score.to_string(), xml_text)
+                self.assertEqual(score.to_actions(), builder().to_actions())
 
     def test_musicxml_to_python_reads_path(self) -> None:
         xml_text = self.golden("quartet.musicxml")
@@ -226,9 +445,10 @@ class MaestroXMLTests(unittest.TestCase):
             code = musicxml_to_python(path)
 
         self.assertIn("score = Score(", code)
-        self.assertIn('score.measure(8)', code)
+        self.assertIn("score.measure(8)", code)
+
         score = self.exec_generated(code)
-        self.assertEqual(score.to_string(), xml_text)
+        self.assertEqual(score.to_actions(), self.build_quartet().to_actions())
 
     def test_musicxml_to_python_ignores_unsupported_elements(self) -> None:
         xml_text = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -286,9 +506,27 @@ class MaestroXMLTests(unittest.TestCase):
         self.assertNotIn("lyric", code)
 
         score = self.exec_generated(code)
-        root = self.parse(score.to_string())
-        self.assertEqual(root.findtext(".//note/pitch/step"), "C")
-        self.assertIsNone(root.find(".//lyric"))
+        self.assertEqual(
+            score.to_actions(),
+            [
+                {
+                    "kind": "add_time_signature",
+                    "numerator": 4,
+                    "denominator": 4,
+                    "tick": 0,
+                    "staff": 0,
+                },
+                {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+                {
+                    "kind": "add_note",
+                    "pitch": "C5",
+                    "duration": "whole",
+                    "tick": 0,
+                    "staff": 0,
+                    "voice": 0,
+                },
+            ],
+        )
 
 
 if __name__ == "__main__":

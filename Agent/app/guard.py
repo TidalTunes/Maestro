@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 
 
-ALLOWED_IMPORTS = {"__future__", "maestroxml", "pathlib"}
+ALLOWED_IMPORTS = {"__future__", "maestroxml"}
 SUPPORTED_DURATION_NAMES = {
     "whole",
     "half",
@@ -28,6 +28,7 @@ DISALLOWED_CALL_NAMES = {
     "open",
 }
 DISALLOWED_ATTRIBUTE_CALLS = {
+    "apply",
     "chmod",
     "chown",
     "hardlink_to",
@@ -43,8 +44,12 @@ DISALLOWED_ATTRIBUTE_CALLS = {
     "run",
     "symlink_to",
     "system",
+    "to_actions",
+    "to_batch",
+    "to_string",
     "touch",
     "unlink",
+    "write",
     "write_bytes",
     "write_text",
 }
@@ -101,14 +106,14 @@ def validate_generated_code(code: str) -> None:
     public_functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
     build_score_functions = [node for node in public_functions if node.name == "build_score"]
     if len(build_score_functions) != 1:
-        raise CodeGuardError("Generated code must define exactly one build_score(output_path) function.")
+        raise CodeGuardError("Generated code must define exactly one build_score() function.")
 
     if len(public_functions) != 1:
         raise CodeGuardError("Generated code must not define helper functions outside build_score().")
 
     build_score = build_score_functions[0]
-    if len(build_score.args.args) != 1 or build_score.args.args[0].arg != "output_path":
-        raise CodeGuardError("build_score must accept exactly one argument named output_path.")
+    if build_score.args.args or build_score.args.kwonlyargs or build_score.args.vararg or build_score.args.kwarg:
+        raise CodeGuardError("build_score must not accept any arguments.")
 
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef)):
@@ -118,7 +123,7 @@ def validate_generated_code(code: str) -> None:
         raise CodeGuardError("Generated code must not execute statements at import time.")
 
     has_maestroxml_import = False
-    has_output_path_reference = False
+    has_build_score_return = False
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -161,10 +166,10 @@ def validate_generated_code(code: str) -> None:
                     duration = _string_constant(value)
                     if duration is not None:
                         _validate_duration_literal(duration, "duration field")
-        elif isinstance(node, ast.Name) and node.id == "output_path":
-            has_output_path_reference = True
+        elif isinstance(node, ast.Return) and node.value is not None:
+            has_build_score_return = True
 
     if not has_maestroxml_import:
         raise CodeGuardError("Generated code must import `maestroxml`.")
-    if not has_output_path_reference:
-        raise CodeGuardError("Generated code must reference the build_score(output_path) argument.")
+    if not has_build_score_return:
+        raise CodeGuardError("build_score() must return the populated Score.")

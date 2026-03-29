@@ -535,13 +535,12 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
     // =====================================================================
 
     case "addHarmony": {
-        if (!newEl) return { ok: false, error: "Missing newElement" }
-        var harm = newEl(ET.HARMONY)
-        harm.text = cmd.text || ""
-        cursor.staffIdx = staffIdx; cursor.voice = 0
-        cursor.rewindToTick(tick)
-        cursor.add(harm)
-        return { ok: true }
+        // NOTE: chord-symbol insertion can crash MuseScore 4 from plugin API.
+        // Return a safe error instead of risking a host crash.
+        return {
+            ok: false,
+            error: "addHarmony is disabled: MuseScore 4 may crash when adding chord symbols from plugin API."
+        }
     }
 
     // =====================================================================

@@ -12,13 +12,7 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.agent import (
-    AgentError,
-    GeneratedMusicXML,
-    build_model_input,
-    execute_generated_code,
-    sanitize_filename_stem,
-)
+from app.agent import AgentError, GeneratedScoreCode, build_model_input
 from app.config import Settings
 from app.context import ReferenceLoadError, load_reference_corpus
 from app.guard import CodeGuardError, validate_generated_code
@@ -26,69 +20,55 @@ from app.humming import HummingService
 from app.main import app
 
 
-def make_settings(root: Path, skill_dir: Path, docs_dir: Path) -> Settings:
+def make_settings(root: Path, docs_dir: Path) -> Settings:
     return Settings(
         root_dir=root,
-        maestro_skill_dir=skill_dir,
         maestro_docs_dir=docs_dir,
         openai_model="gpt-5.4",
         openai_reasoning_effort="low",
         openai_max_output_tokens=20000,
-        execution_timeout_seconds=10,
     )
 
 
 class ReferenceLoaderTests(unittest.TestCase):
-    def test_load_reference_corpus_uses_curated_files(self) -> None:
+    def test_load_reference_corpus_uses_local_docs_only(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             docs_dir = root / "docs"
-            skill_dir = root / "skill"
-            references_dir = skill_dir / "references"
             docs_dir.mkdir()
-            references_dir.mkdir(parents=True)
 
             (root / "README.md").write_text("repo readme", encoding="utf-8")
             (docs_dir / "getting-started.md").write_text("getting started", encoding="utf-8")
             (docs_dir / "api-reference.md").write_text("api ref", encoding="utf-8")
             (docs_dir / "examples.md").write_text("doc examples", encoding="utf-8")
             (docs_dir / "ignored.md").write_text("ignore me", encoding="utf-8")
-            (skill_dir / "SKILL.md").write_text("skill body", encoding="utf-8")
-            (references_dir / "api-patterns.md").write_text("skill api", encoding="utf-8")
-            (references_dir / "examples.md").write_text("skill examples", encoding="utf-8")
-            (skill_dir / "agents").mkdir()
-            (skill_dir / "agents" / "openai.yaml").write_text("unused", encoding="utf-8")
 
-            corpus = load_reference_corpus(make_settings(root, skill_dir, docs_dir))
+            corpus = load_reference_corpus(make_settings(root, docs_dir))
 
         self.assertIn("repo readme", corpus)
         self.assertIn("getting started", corpus)
-        self.assertIn("skill api", corpus)
         self.assertNotIn("ignore me", corpus)
-        self.assertNotIn("unused", corpus)
 
     def test_missing_required_reference_fails(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             docs_dir = root / "docs"
-            skill_dir = root / "skill"
             docs_dir.mkdir()
-            skill_dir.mkdir()
             (root / "README.md").write_text("repo readme", encoding="utf-8")
             with self.assertRaises(ReferenceLoadError):
-                load_reference_corpus(make_settings(root, skill_dir, docs_dir))
+                load_reference_corpus(make_settings(root, docs_dir))
 
 
 class GuardTests(unittest.TestCase):
     def test_accepts_build_score_contract(self) -> None:
         validate_generated_code(
             "from maestroxml import Score\n"
-            "def build_score(output_path):\n"
+            "def build_score():\n"
             "    score = Score(title='Etude')\n"
             "    part = score.add_part('Flute', instrument='flute')\n"
             "    score.measure(1)\n"
             "    part.note('quarter', 'C5')\n"
-            "    score.write(output_path)\n"
+            "    return score\n"
         )
 
     def test_rejects_missing_build_score(self) -> None:
@@ -96,30 +76,38 @@ class GuardTests(unittest.TestCase):
             validate_generated_code(
                 "from maestroxml import Score\n"
                 "score = Score()\n"
-                "score.write('out.musicxml')\n"
             )
 
     def test_rejects_file_reads(self) -> None:
         with self.assertRaises(CodeGuardError):
             validate_generated_code(
-                "from pathlib import Path\n"
                 "from maestroxml import Score\n"
-                "def build_score(output_path):\n"
-                "    Path('secret.txt').read_text()\n"
+                "def build_score():\n"
                 "    score = Score()\n"
-                "    score.write(output_path)\n"
+                "    open('secret.txt').read()\n"
+                "    return score\n"
+            )
+
+    def test_rejects_apply_calls(self) -> None:
+        with self.assertRaises(CodeGuardError):
+            validate_generated_code(
+                "from maestroxml import Score\n"
+                "def build_score():\n"
+                "    score = Score()\n"
+                "    score.apply()\n"
+                "    return score\n"
             )
 
     def test_rejects_unsupported_duration_literals(self) -> None:
         with self.assertRaises(CodeGuardError):
             validate_generated_code(
                 "from maestroxml import Score\n"
-                "def build_score(output_path):\n"
+                "def build_score():\n"
                 "    score = Score()\n"
                 "    part = score.add_part('Flute', instrument='flute')\n"
                 "    score.measure(1)\n"
                 "    part.note('note', 'C5')\n"
-                "    score.write(output_path)\n"
+                "    return score\n"
             )
 
 
@@ -136,72 +124,18 @@ class PromptInputTests(unittest.TestCase):
             build_model_input("   ", "A4, quarter")
 
 
-class ExecutionTests(unittest.TestCase):
-    def test_execute_generated_code_runs_with_fake_maestroxml(self) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            src_dir = root / "src" / "maestroxml"
-            docs_dir = root / "docs"
-            skill_dir = root / "skill"
-            src_dir.mkdir(parents=True)
-            docs_dir.mkdir()
-            skill_dir.mkdir()
-            (root / "README.md").write_text("repo readme", encoding="utf-8")
-            (docs_dir / "getting-started.md").write_text("getting started", encoding="utf-8")
-            (docs_dir / "api-reference.md").write_text("api ref", encoding="utf-8")
-            (docs_dir / "examples.md").write_text("doc examples", encoding="utf-8")
-            (skill_dir / "SKILL.md").write_text("skill body", encoding="utf-8")
-            references_dir = skill_dir / "references"
-            references_dir.mkdir()
-            (references_dir / "api-patterns.md").write_text("skill api", encoding="utf-8")
-            (references_dir / "examples.md").write_text("skill examples", encoding="utf-8")
-            (src_dir / "__init__.py").write_text(
-                "class Score:\n"
-                "    def __init__(self, *args, **kwargs):\n"
-                "        pass\n"
-                "    def add_part(self, *args, **kwargs):\n"
-                "        return self\n"
-                "    def measure(self, *args, **kwargs):\n"
-                "        return self\n"
-                "    def note(self, *args, **kwargs):\n"
-                "        pass\n"
-                "    def write(self, path):\n"
-                "        from pathlib import Path\n"
-                "        Path(path).write_text('<score-partwise/>', encoding='utf-8')\n",
-                encoding="utf-8",
-            )
-
-            filename, musicxml = execute_generated_code(
-                "from maestroxml import Score\n"
-                "def build_score(output_path):\n"
-                "    score = Score()\n"
-                "    part = score.add_part('Flute', instrument='flute')\n"
-                "    score.measure(1)\n"
-                "    part.note('quarter', 'C5')\n"
-                "    score.write(output_path)\n",
-                sanitize_filename_stem("Flute solo"),
-                make_settings(root, skill_dir, docs_dir),
-            )
-
-        self.assertEqual(filename, "flute_solo.musicxml")
-        self.assertEqual(musicxml, "<score-partwise/>")
-
-
 class AppTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
-        for key in ["MAESTRO_SKILL_DIR", "MAESTRO_SKILL_PATH", "MAESTRO_DOCS_DIR"]:
-            os.environ.pop(key, None)
+        os.environ.pop("MAESTRO_DOCS_DIR", None)
 
-    def test_generate_endpoint_returns_code_and_musicxml(self) -> None:
-        result = GeneratedMusicXML(
-            filename="test_piece.musicxml",
-            python_code="from maestroxml import Score\n\ndef build_score(output_path):\n    pass\n",
-            musicxml="<score-partwise version='4.0'/>",
+    def test_generate_endpoint_returns_code_only(self) -> None:
+        result = GeneratedScoreCode(
+            python_code="from maestroxml import Score\n\ndef build_score():\n    return Score()\n",
         )
-        with patch("app.main.agent_module.generate_musicxml_from_prompt", return_value=result):
+        with patch("app.main.agent_module.generate_score_code_from_prompt", return_value=result):
             response = self.client.post(
                 "/api/generate",
                 json={
@@ -213,13 +147,12 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["filename"], "test_piece.musicxml")
+        self.assertEqual(set(payload), {"python_code"})
         self.assertIn("build_score", payload["python_code"])
-        self.assertIn("<score-partwise", payload["musicxml"])
 
     def test_generate_endpoint_returns_error_payload(self) -> None:
         with patch(
-            "app.main.agent_module.generate_musicxml_from_prompt",
+            "app.main.agent_module.generate_score_code_from_prompt",
             side_effect=AgentError("validation failed", "bad code"),
         ):
             response = self.client.post(
@@ -233,12 +166,10 @@ class AppTests(unittest.TestCase):
         self.assertEqual(payload["python_code"], "bad code")
 
     def test_generate_endpoint_forwards_hummed_notes(self) -> None:
-        result = GeneratedMusicXML(
-            filename="test_piece.musicxml",
-            python_code="from maestroxml import Score\n\ndef build_score(output_path):\n    pass\n",
-            musicxml="<score-partwise version='4.0'/>",
+        result = GeneratedScoreCode(
+            python_code="from maestroxml import Score\n\ndef build_score():\n    return Score()\n",
         )
-        with patch("app.main.agent_module.generate_musicxml_from_prompt", return_value=result) as generate_mock:
+        with patch("app.main.agent_module.generate_score_code_from_prompt", return_value=result) as generate_mock:
             response = self.client.post(
                 "/api/generate",
                 json={

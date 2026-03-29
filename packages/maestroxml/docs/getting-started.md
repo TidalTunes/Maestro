@@ -1,8 +1,12 @@
 # Getting Started
 
-This guide shows the intended workflow for `maestroxml`: create a score, add parts, move through measures, write notes with normal Python code, and export MusicXML.
+`maestroxml` is now a bridge-backed MuseScore workflow:
 
-For the complete API, see [API Reference](api-reference.md). For larger worked examples, see [Examples](examples.md).
+1. Build a score in Python.
+2. Convert it to bridge actions with `to_actions()`.
+3. Apply those actions to a live MuseScore score with `apply()`.
+
+For the full method list, see [API Reference](api-reference.md). For longer examples, see [Examples](examples.md).
 
 ## 1. Create A Score
 
@@ -17,7 +21,7 @@ score = Score(
 )
 ```
 
-`Score` stores document-level metadata and score-wide state.
+`Score` stores score metadata and the current measure-level state.
 
 ## 2. Add Parts
 
@@ -27,16 +31,19 @@ viola = score.add_part("Viola", instrument="viola")
 cello = score.add_part("Cello", instrument="cello")
 ```
 
-The `instrument=` argument selects built-in presets for:
+Presets currently exist for:
 
-- part abbreviation
-- number of staves
-- default clefs
-- MusicXML instrument name
+- `violin`
+- `viola`
+- `cello`
+- `piano`
+- `flute`
+- `clarinet`
+- `voice`
 
-If you do not use a preset, the library falls back to one staff with a treble clef.
+Each preset fills in default staves and clefs for the builder model. On the MuseScore side, `maestroxml` uses these presets to choose bridge part setup when it can.
 
-## 3. Start A Measure Before Writing Music
+## 3. Select Measures Before Writing
 
 ```python
 score.measure(1)
@@ -44,30 +51,15 @@ score.time_signature("4/4")
 score.key_signature("G major")
 ```
 
-Important rules:
+Rules:
 
-- You must call `score.measure(...)` before adding notes, rests, chords, or directions.
+- Call `score.measure(...)` before adding notes, rests, chords, or directions.
 - `score.measure()` with no argument advances to the next measure.
-- Time signatures and key signatures are sticky. Set them only when they change.
+- Time and key signatures are sticky score-level state. Set them only when they change.
 
-Example:
+## 4. Add Notes, Rests, And Chords
 
-```python
-score.measure(1)
-score.time_signature("3/4")
-score.key_signature("D minor")
-
-score.measure(2)
-# still 3/4 and D minor
-
-score.measure(3)
-score.time_signature("4/4")
-# key stays D minor until changed
-```
-
-## 4. Write Notes, Rests, And Chords
-
-For simple writing, use the `Part` methods directly. They write to voice 1 on staff 1.
+For simple writing, use the `Part` methods directly. They target voice 1 on staff 1.
 
 ```python
 score.measure(1)
@@ -80,7 +72,7 @@ violin.rest("quarter")
 violin.chord("half", ["C5", "E5", "G5"])
 ```
 
-You can also add rhythmic and notational details. Each line below is an independent example:
+You can also add rhythmic modifiers and notational intent:
 
 ```python
 violin.note("quarter", "F#5", dots=1)
@@ -89,9 +81,9 @@ violin.note("quarter", "A5", tie="start", slur="start")
 violin.note("quarter", "A5", tie="stop", slur="stop", articulations=["accent"])
 ```
 
-## 5. Add Tempo, Dynamics, And Text
+The builder accepts these values even when the current bridge backend can only approximate or skip some of them.
 
-Directions attach to the current position in the active measure.
+## 5. Add Tempo, Dynamics, And Text
 
 ```python
 score.measure(1)
@@ -101,16 +93,11 @@ violin.text("dolce")
 violin.wedge("crescendo")
 ```
 
-Later, stop the wedge when needed:
-
-```python
-score.measure(2)
-violin.wedge("stop")
-```
+Directions attach at the current cursor position in the active measure.
 
 ## 6. Use Multiple Voices Or Multiple Staves
 
-Use `voice(number, staff=...)` when a part needs independent lines or piano notation.
+Use `voice(number, staff=...)` when one part needs independent streams.
 
 ### Piano Example
 
@@ -130,8 +117,6 @@ left_hand.note("half", "G2")
 left_hand.note("half", "D3")
 ```
 
-The serializer emits the MusicXML `<backup>` elements automatically.
-
 ### Two Voices On One Staff
 
 ```python
@@ -146,11 +131,9 @@ lower.note("quarter", "A4")
 lower.note("quarter", "G4")
 ```
 
-## 7. Use Loops And Helpers
+## 7. Generate Patterns With Python
 
-The package is most useful when you treat musical material as Python data.
-
-### Loop Over A Progression
+The package is most useful when you keep musical material in Python data structures.
 
 ```python
 progression = {
@@ -168,108 +151,80 @@ for measure_number, pitches in progression.items():
     violin1.note("whole", pitches[3])
 ```
 
-### Wrap A Repeated Pattern In A Helper
+## 8. Inspect Or Save The Action Plan
+
+Use `to_actions()` when you want the raw bridge payloads:
 
 ```python
-def ostinato(part, pulse_pitch, leap_pitch):
-    part.note("eighth", pulse_pitch)
-    part.note("eighth", pulse_pitch)
-    part.note("eighth", leap_pitch)
-    part.note("eighth", pulse_pitch)
-    part.note("eighth", pulse_pitch)
-    part.note("eighth", leap_pitch)
-
-score.measure(1)
-ostinato(cello, "E2", "B2")
-
-score.measure(2)
-ostinato(cello, "C2", "G2")
+actions = score.to_actions()
 ```
 
-## 8. Export MusicXML
-
-Use `to_string()` if you want the XML as a string:
+Use `to_string()` when you want those actions as JSON text:
 
 ```python
-xml_text = score.to_string()
+json_text = score.to_string()
 ```
 
-Use `write(path)` if you want a file:
+Use `write(path)` when you want that action plan on disk:
 
 ```python
-score.write("miniature.musicxml")
+score.write("miniature-actions.json")
 ```
 
-`write()` returns a `Path` object pointing to the file it created.
+`write()` returns the written `Path`.
 
-## 9. Import Existing MusicXML Into Python
+## 9. Apply The Score To MuseScore
 
-You can also start from an existing MusicXML file and ask `maestroxml` to generate editable Python.
+Start MuseScore and open the bridge plugin dialog first:
+
+- `Plugins > Maestro > Python Bridge`
+
+Then run:
+
+```python
+result = score.apply()
+print(result["all_ok"])
+```
+
+`apply()` creates a default `MuseScoreBridgeClient` if you do not pass one.
+
+If you already have a configured client:
+
+```python
+from maestro_musescore_bridge import MuseScoreBridgeClient
+
+client = MuseScoreBridgeClient(timeout=20.0)
+score.apply(client, fail_on_partial=False)
+```
+
+## 10. Start From Existing MusicXML
+
+The importer still accepts MusicXML and turns it into editable Python:
 
 ```python
 from maestroxml import musicxml_to_python
 
 code = musicxml_to_python(
     "existing.musicxml",
-    output_path="edited.musicxml",
+    output_path="existing-actions.json",
 )
 
 print(code)
 ```
 
-What this does:
+The generated code rebuilds the supported score content with the `maestroxml` API. Unsupported MusicXML details are skipped.
 
-- reads the MusicXML file
-- keeps the parts of the score that `maestroxml` knows how to express
-- returns Python code that builds a `score` object
-- optionally adds `score.write(...)` to the generated code when `output_path` is provided
+`output_path` is optional. When provided, the generated code includes `score.write(...)`, which now writes the bridge action plan JSON rather than MusicXML.
 
-What it does not do:
+## 11. Current Backend Limits
 
-- preserve unsupported MusicXML details
-- preserve every engraving nuance exactly
-- expose raw XML fragments in the generated code
+The builder API is a little broader than the current MuseScore bridge backend. Today these are not fully materialized:
 
-The generated code is meant to be a clean editing starting point, not a lossless serializer for every MusicXML feature.
+- ties
+- slurs
+- wedge spanners
+- repeat barlines and volta endings
+- clef changes beyond initial preset setup
+- some articulations and engraving-only details
 
-## 10. Complete Example
-
-```python
-from maestroxml import Score
-
-score = Score(title="Short Duet", composer="Example Composer")
-flute = score.add_part("Flute", instrument="flute")
-clarinet = score.add_part("Clarinet", instrument="clarinet")
-
-score.measure(1)
-score.time_signature("3/4")
-score.key_signature("F major")
-flute.tempo(96, text="Lightly")
-flute.notes("quarter", ["A4", "C5", "D5"])
-clarinet.note("half", "F3")
-clarinet.note("quarter", "C4")
-
-score.measure(2)
-flute.note("quarter", "E5", tie="start")
-flute.note("quarter", "F5")
-flute.note("quarter", "G5")
-clarinet.chord("half", ["F3", "A3", "C4"])
-clarinet.rest("quarter")
-
-score.measure(3)
-flute.note("half", "E5", tie="stop", articulations=["tenuto"])
-flute.rest("quarter")
-clarinet.dynamic("mp")
-clarinet.note("half", "F3")
-clarinet.note("quarter", "C4")
-
-score.write("short-duet.musicxml")
-```
-
-## Common Pitfalls
-
-- Do not add notes before calling `score.measure(...)`.
-- Do not assume the library balances each measure to the time signature for you.
-- Do not use `Part.note(...)` when you actually need a second voice or a second staff; use `voice(...)` instead.
-- Do not set time signatures or key signatures in every measure unless they actually change.
-- Do not hand-build MusicXML fragments unless you are extending the library itself.
+Check `score.unsupported_features()` if you want a quick summary before calling `apply()`.
