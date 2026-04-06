@@ -1,6 +1,14 @@
 # Maestro
 
-Maestro is an open-source beta app for AI-assisted composition and live MuseScore editing. You describe a musical change, optionally hum an idea, and Maestro turns that request into score edits that can be applied inside MuseScore.
+![Maestro in use](./screenshot.png)
+
+Maestro is an open-source beta app for AI-assisted composition and live MuseScore editing.
+
+## How AI-Assisted Composition Works
+
+1. Prompt a musical change or hum an idea into Maestro.
+2. Maestro asks a model for score-edit code and turns that result into score operations.
+3. Those operations are applied to a live MuseScore session through `Maestro Plugin`.
 
 Maestro `v0.1.0` is the first public beta release.
 
@@ -128,10 +136,6 @@ python maestro_gui.py
 ```
 
 If you want to use Ollama instead, make sure Ollama is installed and running before you launch Maestro, then choose the Ollama-backed model inside the app.
-
-## How AI-Assisted Composition Works
-
-Maestro takes your prompt or hummed melody, sends that request through its score-generation pipeline, converts the resulting musical intent into score operations, and applies those operations to a live MuseScore session through `Maestro Plugin`. The result is not autonomous composition magic; it is a beta co-writing tool that still requires human review.
 
 ## Developers
 

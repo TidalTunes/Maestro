@@ -11,64 +11,117 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="page">
-      <section class="hero">
-        <p class="eyebrow">Maestro v0.1.0</p>
-        <h1>AI-assisted composition for MuseScore.</h1>
-        <p class="lede">
-          Prompt a musical change, optionally hum an idea, and let Maestro turn that request into score edits for a live MuseScore session.
-        </p>
-        <div class="actions">
-          <a
-            class="button primary"
-            href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.dmg"
-          >
-            Download for macOS
-          </a>
-          <a
-            class="button secondary"
-            href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.zip"
-          >
-            ZIP fallback
-          </a>
+    <div class="ambient-glow ambient-glow-left"></div>
+    <div class="ambient-glow ambient-glow-right"></div>
+
+    <main class="shell">
+      <section class="workspace">
+        <div class="left-column">
+          <section class="panel intro-panel">
+            <div class="brand-row">
+              <div class="logo-badge" aria-hidden="true">
+                <img src="./assets/frame3.png" alt="" />
+              </div>
+              <div class="brand-copy">
+                <p class="eyebrow">Maestro v0.1.0</p>
+                <h1>Compose inside MuseScore with a live AI score editor.</h1>
+              </div>
+            </div>
+
+            <div class="how-it-works">
+              <h2>How AI-assisted composition works</h2>
+              <ol class="step-list">
+                <li>
+                  <span class="step-number">1</span>
+                  <p>Describe a musical change or hum a phrase into Maestro.</p>
+                </li>
+                <li>
+                  <span class="step-number">2</span>
+                  <p>Maestro asks a model for score-edit code and converts it into score operations.</p>
+                </li>
+                <li>
+                  <span class="step-number">3</span>
+                  <p>The changes are applied to your live MuseScore session through Maestro Plugin.</p>
+                </li>
+              </ol>
+            </div>
+
+            <div class="actions">
+              <a
+                class="button primary"
+                href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.dmg"
+              >
+                Download for macOS
+              </a>
+              <a
+                class="button secondary"
+                href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.zip"
+              >
+                ZIP fallback
+              </a>
+            </div>
+
+            <p class="warning">
+              The macOS beta is unsigned and not notarized. On first launch, right-click
+              <code>Maestro.app</code>, choose <code>Open</code>, and use
+              <code>System Settings &gt; Privacy &amp; Security &gt; Open Anyway</code> if macOS blocks it again.
+            </p>
+          </section>
+
+          <section class="panel terminal-panel">
+            <div class="panel-header">
+              <div class="traffic-lights" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <p>manual setup / windows / linux / source macos</p>
+            </div>
+
+            <pre class="terminal"><code># macOS / Linux
+$ git clone https://github.com/TidalTunes/Maestro.git
+$ cd Maestro
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+$ python -m pip install --upgrade pip
+$ python -m pip install -r requirements-desktop.txt
+$ maestro-install-plugin install
+$ maestro-install-plugin status
+$ export OPENAI_API_KEY="your-key-here"  # or run Ollama locally
+$ python maestro_gui.py</code></pre>
+
+            <div class="terminal-notes">
+              <p><span>Plugin:</span> Enable <code>Maestro Plugin</code> in MuseScore, then run <code>Plugins &gt; Maestro &gt; Maestro Plugin</code>.</p>
+              <p><span>Windows:</span> Use <code>py -3 -m venv .venv</code>, <code>.venv\Scripts\Activate.ps1</code>, and <code>$env:OPENAI_API_KEY="..."</code>.</p>
+              <p><span>Full guide:</span> <a href="https://github.com/TidalTunes/Maestro/blob/main/README.md">README.md</a></p>
+            </div>
+          </section>
         </div>
-        <p class="warning">
-          The macOS beta is unsigned and not notarized. On first launch, right-click <code>Maestro.app</code> and choose <code>Open</code>.
-        </p>
+
+        <section class="panel visual-panel">
+          <div class="panel-header panel-header-visual">
+            <p>live in musescore</p>
+            <p class="visual-meta">score + bridge + maestro ui</p>
+          </div>
+          <div class="screenshot-wrap">
+            <img
+              src="./assets/screenshot.png"
+              alt="MuseScore open with Maestro docked on the right, showing live AI-assisted score editing."
+            />
+          </div>
+        </section>
       </section>
 
-      <section class="card">
-        <h2>Manual setup for Windows, Linux, or source-based macOS</h2>
-        <ol>
-          <li>Clone the repo and create a virtual environment.</li>
-          <li>Run <code>python -m pip install -r requirements-desktop.txt</code>.</li>
-          <li>Install the MuseScore plugin with <code>maestro-install-plugin install</code>.</li>
-          <li>Enable <code>Maestro Plugin</code> in MuseScore and run it from <code>Plugins &gt; Maestro</code>.</li>
-          <li>Launch the app with <code>python maestro_gui.py</code>.</li>
-        </ol>
+      <footer class="footer">
+        <p>Kashi Tuteja (Lead), Arthur Gilfanov, and Matthew Li. Students at Yale University.</p>
         <p>
-          Full instructions:
-          <a href="https://github.com/TidalTunes/Maestro/blob/main/README.md">README.md</a>
+          <a href="https://github.com/TidalTunes/Maestro/blob/main/LICENSE">License</a>
+          <span>·</span>
+          <a href="https://github.com/TidalTunes/Maestro/blob/main/DISCLAIMER.md">Disclaimer</a>
+          <span>·</span>
+          <a href="https://github.com/TidalTunes/Maestro">GitHub</a>
         </p>
-      </section>
-
-      <section class="card">
-        <h2>How AI-assisted composition works</h2>
-        <p>
-          Maestro takes your prompt or hummed melody, asks a language model for score-edit code, converts that result into score operations, and applies those operations through a live MuseScore plugin bridge. It is a beta co-writing tool, not an autonomous or reliability-guaranteed composer.
-        </p>
-      </section>
+      </footer>
     </main>
-
-    <footer class="footer">
-      <p>Kashi Tuteja (Lead), Arthur Gilfanov, and Matthew Li. Students at Yale University.</p>
-      <p>
-        <a href="https://github.com/TidalTunes/Maestro/blob/main/LICENSE">License</a>
-        <span>·</span>
-        <a href="https://github.com/TidalTunes/Maestro/blob/main/DISCLAIMER.md">Disclaimer</a>
-        <span>·</span>
-        <a href="https://github.com/TidalTunes/Maestro">GitHub</a>
-      </p>
-    </footer>
   </body>
 </html>
