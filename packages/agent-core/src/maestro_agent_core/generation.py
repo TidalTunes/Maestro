@@ -31,6 +31,14 @@ def _module_src_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _bridge_src_root(maestroxml_src_root: Path) -> Path | None:
+    packages_root = maestroxml_src_root.resolve().parents[1]
+    candidate = packages_root / "maestro-musescore-bridge" / "src"
+    if candidate.is_dir():
+        return candidate
+    return None
+
+
 def _runner_command() -> list[str]:
     explicit_runner = os.environ.get("MAESTRO_RUNTIME_RUNNER", "").strip()
     if explicit_runner:
@@ -46,12 +54,23 @@ def _runner_command() -> list[str]:
 
 
 def _execution_env(maestroxml_src_root: Path) -> dict[str, str]:
-    pythonpath_parts = [str(_module_src_root()), str(maestroxml_src_root)]
+    module_src_root = _module_src_root()
+    maestroxml_src_root = maestroxml_src_root.resolve()
+    bridge_src_root = _bridge_src_root(maestroxml_src_root)
+
+    pythonpath_parts = [str(module_src_root), str(maestroxml_src_root)]
+    if bridge_src_root is not None:
+        pythonpath_parts.append(str(bridge_src_root))
+
     existing_pythonpath = os.environ.get("PYTHONPATH", "").strip()
     if existing_pythonpath:
         pythonpath_parts.append(existing_pythonpath)
 
     env = dict(os.environ)
+    env["MAESTRO_AGENT_CORE_SRC_DIR"] = str(module_src_root)
+    env["MAESTRO_MAESTROXML_SRC_DIR"] = str(maestroxml_src_root)
+    if bridge_src_root is not None:
+        env["MAESTRO_BRIDGE_SRC_DIR"] = str(bridge_src_root)
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
     env["PYTHONIOENCODING"] = "utf-8"
     return env

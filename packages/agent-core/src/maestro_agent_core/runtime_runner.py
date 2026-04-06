@@ -1,13 +1,41 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
+
+
+def _bootstrap_external_import_paths() -> None:
+    candidates: list[str] = []
+
+    for env_name in ("MAESTRO_AGENT_CORE_SRC_DIR", "MAESTRO_MAESTROXML_SRC_DIR", "MAESTRO_BRIDGE_SRC_DIR"):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            candidates.append(value)
+
+    pythonpath = os.environ.get("PYTHONPATH", "").strip()
+    if pythonpath:
+        candidates.extend(part for part in pythonpath.split(os.pathsep) if part)
+
+    ordered_paths: list[str] = []
+    seen: set[str] = set()
+    for entry in candidates:
+        resolved = str(Path(entry).expanduser().resolve())
+        if resolved in seen or not Path(resolved).exists():
+            continue
+        seen.add(resolved)
+        ordered_paths.append(resolved)
+
+    for resolved in ordered_paths:
+        if resolved not in sys.path:
+            sys.path.append(resolved)
 
 
 def _load_module_function(script_path: Path, function_name: str):
     import importlib.util
 
+    _bootstrap_external_import_paths()
     spec = importlib.util.spec_from_file_location("generated_maestro_score", script_path)
     if spec is None or spec.loader is None:
         raise RuntimeError("Unable to load generated score module.")
@@ -27,6 +55,7 @@ def run_generate(script_path: Path, output_path: Path) -> None:
 
 
 def run_edit(base_script_path: Path, edit_script_path: Path, output_path: Path) -> None:
+    _bootstrap_external_import_paths()
     namespace: dict[str, object] = {}
     exec(base_script_path.read_text(encoding="utf-8"), namespace)
 

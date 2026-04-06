@@ -264,8 +264,23 @@ class ExecutionTests(unittest.TestCase):
             env = generation_module._execution_env(maestroxml_src_root)
 
         pythonpath_entries = env["PYTHONPATH"].split(os.pathsep)
-        self.assertIn(str(maestroxml_src_root), pythonpath_entries)
+        self.assertIn(str(maestroxml_src_root.resolve()), pythonpath_entries)
         self.assertIn(str(generation_module._module_src_root()), pythonpath_entries)
+
+    def test_execution_env_exposes_bridge_src_when_layout_matches(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            maestroxml_src_root = root / "packages" / "maestroxml" / "src"
+            bridge_src_root = root / "packages" / "maestro-musescore-bridge" / "src"
+            maestroxml_src_root.mkdir(parents=True)
+            bridge_src_root.mkdir(parents=True)
+
+            env = generation_module._execution_env(maestroxml_src_root)
+
+        pythonpath_entries = env["PYTHONPATH"].split(os.pathsep)
+        self.assertEqual(env["MAESTRO_MAESTROXML_SRC_DIR"], str(maestroxml_src_root.resolve()))
+        self.assertEqual(env["MAESTRO_BRIDGE_SRC_DIR"], str(bridge_src_root.resolve()))
+        self.assertIn(str(bridge_src_root.resolve()), pythonpath_entries)
 
 
 if __name__ == "__main__":

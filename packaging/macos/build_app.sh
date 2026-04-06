@@ -85,14 +85,16 @@ fi
   --noconfirm \
   --clean \
   --console \
-  --onedir \
+  --onefile \
   --name "$RUNNER_NAME" \
   --distpath "$DIST_DIR" \
   --workpath "$BUILD_DIR/runner" \
   --specpath "$BUILD_DIR/spec" \
+  --collect-all "maestroxml" \
+  --collect-all "maestro_musescore_bridge" \
   "$ROOT_DIR/packages/agent-core/src/maestro_agent_core/runtime_runner.py"
 
-cp "$DIST_DIR/$RUNNER_NAME/$RUNNER_NAME" "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"
+cp "$DIST_DIR/$RUNNER_NAME" "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"
 chmod +x "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"
 codesign --force --deep --sign - "$DIST_DIR/$APP_NAME.app"
 
