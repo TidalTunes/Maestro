@@ -241,7 +241,7 @@ class MuseScoreBridgeClient:
 
         raise BridgeTimeoutError(
             "Timed out waiting for MuseScore bridge response. "
-            "Make sure the 'Maestro Python Bridge' plugin dialog is open."
+            "Make sure the 'Maestro Plugin' dialog is open."
         )
 
     @staticmethod

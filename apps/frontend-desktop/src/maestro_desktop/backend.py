@@ -3,41 +3,35 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 from fractions import Fraction
+import json
 from pathlib import Path
 import os
-import sys
 from typing import Any, Mapping
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
-
-ROOT_DIR = Path(__file__).resolve().parents[4]
-AGENT_ROOT = ROOT_DIR / "Agent"
-AGENT_CORE_SRC = ROOT_DIR / "packages" / "agent-core" / "src"
-HUMMING_DETECTOR_SRC = ROOT_DIR / "packages" / "humming-detector" / "src"
-MAESTROXML_SRC = ROOT_DIR / "packages" / "maestroxml" / "src"
-BRIDGE_SRC = ROOT_DIR / "packages" / "maestro-musescore-bridge" / "src"
-REPO_SKILL_DIR = ROOT_DIR / "skills" / "maestroxml-sheet-music"
-DEFAULT_SKILL_DIR = (
-    REPO_SKILL_DIR.resolve()
-    if REPO_SKILL_DIR.is_dir()
-    else Path.home() / ".codex" / "skills" / "maestroxml-sheet-music"
+from .runtime_support import (
+    bootstrap_runtime_imports,
+    maestroxml_docs_dir,
+    maestroxml_src_dir as bundled_maestroxml_src_dir,
+    runtime_root,
+    skill_dir as bundled_skill_dir,
 )
-DEFAULT_DOCS_DIR = ROOT_DIR / "packages" / "maestroxml" / "docs"
+
+ROOT_DIR = runtime_root()
+DEFAULT_SKILL_DIR = bundled_skill_dir()
+DEFAULT_DOCS_DIR = maestroxml_docs_dir()
+MAESTROXML_SRC = bundled_maestroxml_src_dir()
+DEFAULT_OPENAI_MODEL = "gpt-5.4"
+DEFAULT_OLLAMA_MODEL = "qwen3.5:cloud"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api"
 DEFAULT_TICKS_PER_QUARTER = 480
 DEFAULT_MEASURE_TICKS = DEFAULT_TICKS_PER_QUARTER * 4
 LIVE_EDIT_STREAM_DELAY_SECONDS = 0.01
 
 
 def bootstrap_local_imports() -> None:
-    for path in (
-        AGENT_CORE_SRC,
-        MAESTROXML_SRC,
-        HUMMING_DETECTOR_SRC,
-        BRIDGE_SRC,
-        AGENT_ROOT,
-    ):
-        resolved = str(path.resolve())
-        if resolved not in sys.path:
-            sys.path.insert(0, resolved)
+    bootstrap_runtime_imports()
 
 
 bootstrap_local_imports()
@@ -58,6 +52,13 @@ from maestro_musescore_bridge import BridgeError, MuseScoreBridgeClient
 from maestroxml import musicxml_to_python
 
 
+def _resolve_ollama_chat_endpoint(base_url: str) -> str:
+    normalized = (base_url or DEFAULT_OLLAMA_BASE_URL).strip().rstrip("/")
+    if normalized.endswith("/api"):
+        return normalized + "/chat"
+    return normalized + "/api/chat"
+
+
 def _create_openai_client(api_key: str):
     try:
         from openai import OpenAI
@@ -66,6 +67,48 @@ def _create_openai_client(api_key: str):
             "The OpenAI Python SDK is not installed. Install the service dependencies first."
         ) from exc
     return OpenAI(api_key=api_key)
+
+
+def _default_ollama_request(base_url: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    endpoint = _resolve_ollama_chat_endpoint(base_url)
+    headers = {"Content-Type": "application/json"}
+    ollama_api_key = os.environ.get("OLLAMA_API_KEY", "").strip()
+    if ollama_api_key and endpoint.startswith("https://ollama.com/api/"):
+        headers["Authorization"] = f"Bearer {ollama_api_key}"
+
+    request = urllib_request.Request(
+        endpoint,
+        data=json.dumps(dict(payload)).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(request, timeout=180.0) as response:
+            body = response.read().decode("utf-8")
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        if detail:
+            raise LiveEditError(f"Ollama request failed: {detail}") from exc
+        raise LiveEditError(f"Ollama request failed with HTTP {exc.code}.") from exc
+    except urllib_error.URLError as exc:
+        raise LiveEditError(f"Ollama request failed: {exc.reason}") from exc
+    except Exception as exc:
+        raise LiveEditError(f"Ollama request failed: {exc}") from exc
+
+    try:
+        response_payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise LiveEditError("Ollama returned invalid JSON.") from exc
+
+    if not isinstance(response_payload, Mapping):
+        raise LiveEditError("Ollama returned a non-object response payload.")
+
+    error_message = response_payload.get("error")
+    if isinstance(error_message, str) and error_message.strip():
+        raise LiveEditError(f"Ollama request failed: {error_message.strip()}")
+
+    return response_payload
 
 
 def _default_audio_transcriber(audio_path: str | Path) -> str:
@@ -106,12 +149,65 @@ class LiveEditResult:
 
 
 @dataclass(frozen=True)
+class OpenAIProviderConfig:
+    api_key: str = ""
+    model: str = ""
+
+
+@dataclass(frozen=True)
+class OllamaProviderConfig:
+    model: str = DEFAULT_OLLAMA_MODEL
+    base_url: str = ""
+
+
+@dataclass(frozen=True)
+class ModelProviderConfig:
+    provider: str
+    openai: OpenAIProviderConfig | None = None
+    ollama: OllamaProviderConfig | None = None
+
+    @classmethod
+    def for_openai(
+        cls,
+        *,
+        api_key: str = "",
+        model: str = "",
+    ) -> ModelProviderConfig:
+        return cls(
+            provider="openai",
+            openai=OpenAIProviderConfig(api_key=api_key, model=model),
+        )
+
+    @classmethod
+    def for_ollama(
+        cls,
+        *,
+        model: str = DEFAULT_OLLAMA_MODEL,
+        base_url: str = "",
+    ) -> ModelProviderConfig:
+        return cls(
+            provider="ollama",
+            ollama=OllamaProviderConfig(model=model, base_url=base_url),
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedModelProvider:
+    provider: str
+    model: str
+    api_key: str = ""
+    base_url: str = ""
+
+
+@dataclass(frozen=True)
 class LiveEditSettings:
     root_dir: Path
     maestro_skill_dir: Path
     maestro_docs_dir: Path
     maestroxml_src_dir: Path
     openai_model: str
+    ollama_model: str
+    ollama_base_url: str
     openai_reasoning_effort: str
     openai_max_output_tokens: int
     execution_timeout_seconds: int
@@ -135,11 +231,81 @@ def get_live_edit_settings() -> LiveEditSettings:
         maestro_skill_dir=_resolve_path(skill_dir, DEFAULT_SKILL_DIR),
         maestro_docs_dir=_resolve_path(docs_dir, DEFAULT_DOCS_DIR),
         maestroxml_src_dir=_resolve_path(maestroxml_src_dir, MAESTROXML_SRC),
-        openai_model=os.environ.get("OPENAI_MODEL", "gpt-5.4"),
+        openai_model=os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        ollama_model=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+        ollama_base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL),
         openai_reasoning_effort=os.environ.get("OPENAI_REASONING_EFFORT", "low"),
         openai_max_output_tokens=int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "20000")),
         execution_timeout_seconds=int(os.environ.get("EXECUTION_TIMEOUT_SECONDS", "20")),
     )
+
+
+def get_default_provider_config() -> ModelProviderConfig:
+    explicit_provider = (
+        os.environ.get("MAESTRO_MODEL_PROVIDER", "")
+        or os.environ.get("MAESTRO_PROVIDER", "")
+    ).strip().lower()
+
+    if explicit_provider == "openai":
+        return ModelProviderConfig.for_openai(
+            api_key=os.environ.get("OPENAI_API_KEY", "").strip(),
+            model=os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL).strip(),
+        )
+
+    if explicit_provider == "ollama":
+        return ModelProviderConfig.for_ollama(
+            model=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL).strip() or DEFAULT_OLLAMA_MODEL,
+            base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).strip(),
+        )
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_api_key:
+        return ModelProviderConfig.for_openai(
+            api_key=openai_api_key,
+            model=os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL).strip(),
+        )
+
+    return ModelProviderConfig.for_ollama(
+        model=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL).strip() or DEFAULT_OLLAMA_MODEL,
+        base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).strip(),
+    )
+
+
+def _resolve_model_provider(
+    provider: ModelProviderConfig | None,
+    *,
+    api_key: str | None,
+    settings: LiveEditSettings,
+) -> ResolvedModelProvider:
+    if provider is None and isinstance(api_key, str) and api_key.strip():
+        provider = ModelProviderConfig.for_openai(api_key=api_key.strip())
+    elif provider is None:
+        provider = get_default_provider_config()
+
+    provider_name = provider.provider.strip().lower()
+    if provider_name == "openai":
+        openai = provider.openai or OpenAIProviderConfig()
+        resolved_api_key = (openai.api_key or api_key or os.environ.get("OPENAI_API_KEY", "")).strip()
+        if not resolved_api_key:
+            raise LiveEditError("OpenAI requires an API key. Set it in Settings or OPENAI_API_KEY.")
+        resolved_model = (openai.model or settings.openai_model or DEFAULT_OPENAI_MODEL).strip()
+        return ResolvedModelProvider(
+            provider="openai",
+            model=resolved_model or DEFAULT_OPENAI_MODEL,
+            api_key=resolved_api_key,
+        )
+
+    if provider_name == "ollama":
+        ollama = provider.ollama or OllamaProviderConfig()
+        resolved_model = (ollama.model or settings.ollama_model or DEFAULT_OLLAMA_MODEL).strip()
+        resolved_base_url = (ollama.base_url or settings.ollama_base_url or DEFAULT_OLLAMA_BASE_URL).strip()
+        return ResolvedModelProvider(
+            provider="ollama",
+            model=resolved_model or DEFAULT_OLLAMA_MODEL,
+            base_url=resolved_base_url or DEFAULT_OLLAMA_BASE_URL,
+        )
+
+    raise LiveEditError(f"Unsupported model provider: {provider.provider!r}")
 
 
 _BASE_DURATION_SPECS: tuple[tuple[str, Fraction], ...] = (
@@ -622,6 +788,7 @@ class DesktopAgentBackend:
         bridge_client_factory=MuseScoreBridgeClient,
         audio_transcriber=_default_audio_transcriber,
         openai_client_factory=_create_openai_client,
+        ollama_requester=_default_ollama_request,
     ) -> None:
         self._humming_session = humming_session
         self._settings_factory = settings_factory
@@ -629,6 +796,7 @@ class DesktopAgentBackend:
         self._bridge_client_factory = bridge_client_factory
         self._audio_transcriber = audio_transcriber
         self._openai_client_factory = openai_client_factory
+        self._ollama_requester = ollama_requester
 
     def generate_code(
         self,
@@ -649,24 +817,22 @@ class DesktopAgentBackend:
         *,
         audio_path: str = "",
         api_key: str | None = None,
+        provider: ModelProviderConfig | None = None,
     ) -> LiveEditResult:
         cleaned_prompt = prompt.strip()
         if not cleaned_prompt:
             raise LiveEditError("A text prompt is required to edit the score.")
 
-        resolved_api_key = (api_key or os.environ.get("OPENAI_API_KEY", "")).strip()
-        if not resolved_api_key:
-            raise LiveEditError("Set OPENAI_API_KEY before submitting a live score edit.")
-
         hummed_notes = self._transcribe_audio(audio_path)
         settings = self._live_settings_factory()
+        resolved_provider = _resolve_model_provider(provider, api_key=api_key, settings=settings)
         bridge_client = self._bridge_client_factory()
 
         current_score_python = self._load_current_score_python(bridge_client)
 
         python_code = self._generate_live_edit_code(
             cleaned_prompt,
-            resolved_api_key,
+            resolved_provider,
             settings,
             current_score_python,
             hummed_notes,
@@ -786,8 +952,8 @@ class DesktopAgentBackend:
     def _generate_live_edit_code(
         self,
         prompt: str,
-        api_key: str,
-        settings,
+        provider: ResolvedModelProvider,
+        settings: LiveEditSettings,
         current_score_python: str,
         hummed_notes: str,
     ) -> str:
@@ -800,27 +966,75 @@ class DesktopAgentBackend:
         except ReferenceLoadError as exc:
             raise LiveEditError(str(exc)) from exc
 
-        client = self._openai_client_factory(api_key)
-        try:
-            response = client.responses.create(
-                model=settings.openai_model,
-                instructions=build_edit_generation_instructions(reference_corpus),
-                input=build_edit_model_input(prompt, current_score_python, hummed_notes),
-                reasoning={"effort": settings.openai_reasoning_effort},
-                max_output_tokens=settings.openai_max_output_tokens,
-                store=False,
-                text={"verbosity": "low"},
+        instructions = build_edit_generation_instructions(reference_corpus)
+        model_input = build_edit_model_input(prompt, current_score_python, hummed_notes)
+        return self._request_model_output(
+            provider,
+            settings=settings,
+            instructions=instructions,
+            model_input=model_input,
+        )
+
+    def _request_model_output(
+        self,
+        provider: ResolvedModelProvider,
+        *,
+        settings: LiveEditSettings,
+        instructions: str,
+        model_input: str,
+    ) -> str:
+        if provider.provider == "openai":
+            client = self._openai_client_factory(provider.api_key)
+            try:
+                response = client.responses.create(
+                    model=provider.model,
+                    instructions=instructions,
+                    input=model_input,
+                    reasoning={"effort": settings.openai_reasoning_effort},
+                    max_output_tokens=settings.openai_max_output_tokens,
+                    store=False,
+                    text={"verbosity": "low"},
+                )
+            except LiveEditError:
+                raise
+            except Exception as exc:
+                raise LiveEditError(f"OpenAI request failed: {exc}") from exc
+
+            status = getattr(response, "status", None)
+            if status not in {None, "completed"}:
+                raise LiveEditError(response_status_message(response))
+
+            try:
+                return extract_output_text(response)
+            except CoreAgentError as exc:
+                raise LiveEditError(str(exc)) from exc
+
+        if provider.provider == "ollama":
+            response = self._ollama_requester(
+                provider.base_url,
+                {
+                    "model": provider.model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": instructions},
+                        {"role": "user", "content": model_input},
+                    ],
+                },
             )
-        except LiveEditError:
-            raise
-        except Exception as exc:
-            raise LiveEditError(f"OpenAI request failed: {exc}") from exc
+            return self._extract_ollama_output_text(response)
 
-        status = getattr(response, "status", None)
-        if status not in {None, "completed"}:
-            raise LiveEditError(response_status_message(response))
+        raise LiveEditError(f"Unsupported model provider: {provider.provider!r}")
 
-        try:
-            return extract_output_text(response)
-        except CoreAgentError as exc:
-            raise LiveEditError(str(exc)) from exc
+    @staticmethod
+    def _extract_ollama_output_text(response: Mapping[str, Any]) -> str:
+        message = response.get("message")
+        if isinstance(message, Mapping):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+
+        fallback = response.get("response")
+        if isinstance(fallback, str) and fallback.strip():
+            return fallback.strip()
+
+        raise LiveEditError("Ollama returned no text output.")

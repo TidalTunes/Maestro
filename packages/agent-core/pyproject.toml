@@ -9,6 +9,9 @@ description = "Prompt construction, validation, and generated-code execution for
 readme = "README.md"
 requires-python = ">=3.10"
 
+[project.scripts]
+maestro-runtime-runner = "maestro_agent_core.runtime_runner:main"
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 

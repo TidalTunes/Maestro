@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
+import os
 import sys
 import unittest
 
@@ -25,6 +27,7 @@ from maestro_agent_core import (
     validate_generated_code,
     validate_generated_edit_code,
 )
+import maestro_agent_core.generation as generation_module
 from maestro_agent_core.context import ReferenceLoadError, load_reference_corpus
 
 
@@ -246,6 +249,23 @@ class ExecutionTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_runner_command_uses_explicit_runner_override(self) -> None:
+        with TemporaryDirectory() as directory:
+            runner = Path(directory) / "custom-runner"
+            runner.write_text("", encoding="utf-8")
+
+            with patch.dict("os.environ", {"MAESTRO_RUNTIME_RUNNER": str(runner)}, clear=False):
+                self.assertEqual(generation_module._runner_command(), [str(runner)])
+
+    def test_execution_env_includes_agent_core_and_maestroxml_paths(self) -> None:
+        with TemporaryDirectory() as directory:
+            maestroxml_src_root = Path(directory) / "src"
+            env = generation_module._execution_env(maestroxml_src_root)
+
+        pythonpath_entries = env["PYTHONPATH"].split(os.pathsep)
+        self.assertIn(str(maestroxml_src_root), pythonpath_entries)
+        self.assertIn(str(generation_module._module_src_root()), pythonpath_entries)
 
 
 if __name__ == "__main__":

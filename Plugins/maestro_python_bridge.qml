@@ -6,8 +6,8 @@ import "score_operations.js" as Ops
 import "bridge_actions.js" as BridgeActions
 
 MuseScore {
-    menuPath: "Plugins.Maestro.Python Bridge"
-    description: "Bridge plugin for direct score editing from Python scripts."
+    menuPath: "Plugins.Maestro.Maestro Plugin"
+    description: "Maestro Plugin for direct score editing from Python scripts."
     version: "1.0"
     pluginType: "dialog"
     requiresScore: false
@@ -365,7 +365,7 @@ MuseScore {
         Text {
             x: 20
             y: 16
-            text: "Maestro Python Bridge"
+            text: "Maestro Plugin"
             color: "#f8fafc"
             font.pixelSize: 22
             font.bold: true

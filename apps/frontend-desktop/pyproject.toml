@@ -12,6 +12,9 @@ dependencies = [
   "PyQt6>=6.0.0",
 ]
 
+[project.scripts]
+maestro-desktop = "maestro_desktop.app:main"
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 

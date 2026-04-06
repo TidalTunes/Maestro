@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -9,86 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .guard import validate_generated_code, validate_generated_edit_code
-
-
-RUNNER_SCRIPT = """
-from __future__ import annotations
-
-import importlib.util
-from pathlib import Path
-import sys
-
-script_path = Path(sys.argv[1])
-output_path = Path(sys.argv[2])
-
-spec = importlib.util.spec_from_file_location("generated_maestro_score", script_path)
-if spec is None or spec.loader is None:
-    raise RuntimeError("Unable to load generated score module.")
-
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-build_score = getattr(module, "build_score", None)
-if build_score is None or not callable(build_score):
-    raise RuntimeError("Generated code must define build_score(output_path).")
-
-build_score(str(output_path))
-""".strip()
-
-EDIT_RUNNER_SCRIPT = """
-from __future__ import annotations
-
-import json
-from pathlib import Path
-import sys
-
-base_script_path = Path(sys.argv[1])
-edit_script_path = Path(sys.argv[2])
-output_path = Path(sys.argv[3])
-
-namespace = {}
-exec(base_script_path.read_text(encoding="utf-8"), namespace)
-
-base_score = namespace.get("score")
-if base_score is None:
-    raise RuntimeError("Imported score context must define a global `score` object.")
-if not hasattr(base_score, "clone_shell") or not hasattr(base_score, "to_delta_actions"):
-    raise RuntimeError("Imported score context must provide maestroxml live-edit helpers.")
-
-score = base_score.clone_shell()
-part_map = {id(source): target for source, target in zip(base_score.parts, score.parts)}
-
-for name, value in list(namespace.items()):
-    if value is base_score:
-        namespace[name] = score
-        continue
-
-    mapped_part = part_map.get(id(value))
-    if mapped_part is not None:
-        namespace[name] = mapped_part
-        continue
-
-    owner = getattr(value, "part", None)
-    voice = getattr(value, "voice", None)
-    staff = getattr(value, "staff", None)
-    mapped_owner = part_map.get(id(owner))
-    if mapped_owner is not None and isinstance(voice, int) and isinstance(staff, int):
-        namespace[name] = mapped_owner.voice(voice, staff)
-
-namespace["score"] = score
-
-exec(edit_script_path.read_text(encoding="utf-8"), namespace)
-
-apply_changes = namespace.get("apply_changes")
-if apply_changes is None or not callable(apply_changes):
-    raise RuntimeError("Generated code must define apply_changes(score).")
-
-apply_changes(score)
-output_path.write_text(
-    json.dumps(score.to_delta_actions(base_score), indent=2) + "\\n",
-    encoding="utf-8",
-)
-""".strip()
 
 
 class AgentError(RuntimeError):
@@ -104,6 +25,36 @@ class GeneratedMusicXML:
     filename: str
     python_code: str
     musicxml: str
+
+
+def _module_src_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _runner_command() -> list[str]:
+    explicit_runner = os.environ.get("MAESTRO_RUNTIME_RUNNER", "").strip()
+    if explicit_runner:
+        return [explicit_runner]
+
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys.executable).resolve().with_name("maestro-runtime-runner")
+        if candidate.is_file():
+            return [str(candidate)]
+        raise AgentError("Frozen Maestro build is missing the runtime runner helper.")
+
+    return [sys.executable, "-m", "maestro_agent_core.runtime_runner"]
+
+
+def _execution_env(maestroxml_src_root: Path) -> dict[str, str]:
+    pythonpath_parts = [str(_module_src_root()), str(maestroxml_src_root)]
+    existing_pythonpath = os.environ.get("PYTHONPATH", "").strip()
+    if existing_pythonpath:
+        pythonpath_parts.append(existing_pythonpath)
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
 
 
 def build_generation_instructions(reference_corpus: str) -> str:
@@ -264,20 +215,11 @@ def execute_generated_code(
         output_path = temp_dir / f"{filename_stem}.musicxml"
         generated_script.write_text(python_code, encoding="utf-8")
 
-        env = {
-            "PYTHONPATH": str(maestroxml_src_root),
-            "PYTHONIOENCODING": "utf-8",
-        }
+        env = _execution_env(maestroxml_src_root)
 
         try:
             completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    RUNNER_SCRIPT,
-                    str(generated_script),
-                    str(output_path),
-                ],
+                _runner_command() + ["generate", str(generated_script), str(output_path)],
                 capture_output=True,
                 cwd=temp_dir,
                 env=env,
@@ -326,17 +268,13 @@ def execute_generated_edit_code(
         base_script.write_text(cleaned_score_python + "\n", encoding="utf-8")
         edit_script.write_text(python_code, encoding="utf-8")
 
-        env = {
-            "PYTHONPATH": str(maestroxml_src_root),
-            "PYTHONIOENCODING": "utf-8",
-        }
+        env = _execution_env(maestroxml_src_root)
 
         try:
             completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    EDIT_RUNNER_SCRIPT,
+                _runner_command()
+                + [
+                    "edit",
                     str(base_script),
                     str(edit_script),
                     str(output_path),

@@ -1,4 +1,4 @@
-# Maestro Python Bridge Plugin
+# Maestro Plugin
 
 `maestro_python_bridge.qml` is a non-demo plugin intended for script-driven score editing.
 

@@ -60,7 +60,7 @@ Optional `dots` may be used for dotted durations.
 - `append_measures`
   - fields: `count`
 - `add_part`
-  - fields: one of `instrumentId` or `musicXmlId`
+  - fields: one of `instrumentId`, `musicXmlId`, or `instrumentName`
 - `set_header_text`
   - fields: `type`, `text`
 - `set_meta_tag`
@@ -71,8 +71,9 @@ Optional `dots` may be used for dotted durations.
 - `add_time_signature`
   - fields: `numerator`, `denominator`, `tick`, optional `staff`
 - `add_key_signature`
-  - fields: `key`, `tick`, optional `staff`
+  - fields: `key`, `tick`, optional `staff`, optional `all_staves`
   - `key` may be numeric fifths or key name string (`C`, `G`, `Bb`, etc.)
+  - when `all_staves` is true, the bridge applies the key signature across every staff in the score
 - `add_clef`
   - fields: `tick`, optional `staff`, optional `clefType`
 - `add_tempo`

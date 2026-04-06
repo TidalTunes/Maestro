@@ -5,19 +5,23 @@ This app contains the current active PyQt desktop frontend that was promoted fro
 ## What It Can Do
 
 - render a conversation-style desktop interface
-- accept typed prompts
+- preserve the current `maestro_gui.py` live-edit experience inside the packaged app
+- accept typed prompts plus optional hummed input
 - show microphone and audio-preview UI elements
 - play back recorded preview audio inside the window
-- show loading states and staged AI responses
-- act as the current visual shell for the broader Maestro product
+- show loading states and live-edit results
+- install and verify the bundled MuseScore plugin for the macOS app build
 
 ## Current State
 
-This app is the active frontend boundary, but it is not yet the finished product integration. The main window currently uses a stubbed `on_prompt_submit` hook, so it should be treated as the primary UI shell rather than a complete end-to-end client.
+This app is the active desktop boundary and now wraps the current `maestro_gui.py` runtime rather than the earlier simplified shell. The packaged entrypoint delegates to `gui_runtime.py`, while the root `maestro_gui.py` file remains a thin local/dev wrapper.
 
 ## Important Files
 
-- `src/maestro_desktop/app.py`: the main PyQt application, widgets, and entrypoint
+- `src/maestro_desktop/app.py`: packaged entrypoint wrapper
+- `src/maestro_desktop/gui_runtime.py`: current Maestro UI and live-edit workflow
+- `src/maestro_desktop/runtime_support.py`: repo-vs-bundled resource and path resolution
+- `src/maestro_desktop/plugin_setup.py`: bundled MuseScore plugin installer and bridge checks
 - `tests/test_import.py`: import smoke test for the promoted frontend package
 
 ## Boundaries

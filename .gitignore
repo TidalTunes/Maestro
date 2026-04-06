@@ -15,3 +15,8 @@ build/
 .ipynb_checkpoints/
 .DS_Store
 tmp/
+.pytest_cache/
+.mypy_cache/
+*.app
+*.dmg
+packages/maestro-musescore-bridge/testing/*.json

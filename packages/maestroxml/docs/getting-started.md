@@ -179,7 +179,7 @@ score.write("miniature-actions.json")
 
 Start MuseScore and open the bridge plugin dialog first:
 
-- `Plugins > Maestro > Python Bridge`
+- `Plugins > Maestro > Maestro Plugin`
 
 Then run:
 

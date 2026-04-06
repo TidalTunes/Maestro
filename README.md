@@ -61,7 +61,33 @@ desktop UI or HTTP client
 | `docs/` | Repository architecture and integration docs | Explains layout, migration, and system boundaries |
 | `Agent/` and `legacy/` | Transitional and historical paths | Preserved intentionally while development moves into `apps/`, `packages/`, and `contracts/` |
 
-## Quick Start
+## Downloadable App (macOS)
+
+The packaging flow now targets a single downloadable `Maestro.app` plus a bundled MuseScore plugin installer.
+
+Build the macOS app bundle from this repo with:
+
+```bash
+./packaging/macos/build_app.sh
+```
+
+Then optionally sign/notarize and create a DMG:
+
+```bash
+./packaging/macos/notarize_app.sh
+./packaging/macos/make_dmg.sh
+```
+
+The packaged app keeps the current `maestro_gui.py` runtime and bundles:
+
+- the existing live-edit UI
+- the MuseScore bridge plugin files
+- the local prompt/reference corpus
+- the legacy and active Python source trees required by the current MVP runtime
+
+When an end user opens `Maestro.app`, the app can install the bundled `Maestro Plugin` into MuseScore, open MuseScore, and verify bridge connectivity.
+
+## Developer Setup
 
 ### Prerequisites
 
@@ -110,13 +136,13 @@ Current endpoints:
 
 ### Desktop Frontend
 
-Run the PyQt app:
+Run the current Maestro UI:
 
 ```bash
-python -m maestro_desktop.app
+python maestro_gui.py
 ```
 
-The desktop app is the current user-facing shell. It also contains the bridge-backed live-edit backend used to inspect an open MuseScore score, generate delta actions, and stream those actions back to MuseScore.
+`maestro_gui.py` is now a thin wrapper around the packaged desktop entrypoint. It still launches the current bridge-backed live-edit UI used to inspect an open MuseScore score, generate delta actions, and stream those actions back to MuseScore.
 
 ### MuseScore Bridge
 
@@ -128,8 +154,8 @@ For live score editing, install the bridge plugin files into your MuseScore plug
 
 Then in MuseScore:
 
-1. Enable `Maestro Python Bridge` in the plugin manager.
-2. Run `Plugins > Maestro > Python Bridge`.
+1. Enable `Maestro Plugin` in the plugin manager.
+2. Run `Plugins > Maestro > Maestro Plugin`.
 3. Keep the bridge dialog open while Python or the desktop app is sending actions.
 
 Once the package is installed, you can verify connectivity with:

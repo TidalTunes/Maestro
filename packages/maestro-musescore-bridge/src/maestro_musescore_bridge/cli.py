@@ -24,7 +24,7 @@ def _load_actions_from_file(path: Path) -> list[dict[str, Any]]:
 def _make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="maestro-musescore-bridge",
-        description="Control MuseScore by sending actions to the Maestro Python Bridge plugin.",
+        description="Control MuseScore by sending actions to the Maestro Plugin.",
     )
     parser.add_argument(
         "--bridge-dir",

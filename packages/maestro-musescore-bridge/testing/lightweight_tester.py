@@ -44,7 +44,7 @@ class BridgeTesterUI:
         self.log_box.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         self.log("Bridge tester ready.")
-        self.log("1) In MuseScore open Plugins > Maestro > Python Bridge and keep it open.")
+        self.log("1) In MuseScore open Plugins > Maestro > Maestro Plugin and keep it open.")
         self.log("2) Use buttons below to send live score edits.")
         self.log(f"3) If a crash happens during All Features, inspect: {self.progress_path}")
 

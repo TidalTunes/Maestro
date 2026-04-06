@@ -2,7 +2,7 @@
 
 `maestro-musescore-bridge` is a Python package for editing a live MuseScore score by code.
 
-It talks to the `Maestro Python Bridge` MuseScore plugin over a lightweight file protocol and exposes explicit action methods such as `add_note`, `add_dynamic`, `add_time_signature`, and many more.
+It talks to the `Maestro Plugin` MuseScore plugin over a lightweight file protocol and exposes explicit action methods such as `add_note`, `add_dynamic`, `add_time_signature`, and many more.
 
 ## Documentation Map
 
@@ -42,7 +42,7 @@ pip install -e packages/maestro-musescore-bridge
 
 2. Open MuseScore and run:
 
-- `Plugins > Maestro > Python Bridge`
+- `Plugins > Maestro > Maestro Plugin`
 
 3. Keep the plugin dialog open.
 

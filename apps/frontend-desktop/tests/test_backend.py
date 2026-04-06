@@ -82,6 +82,8 @@ class DesktopAgentBackendTests(unittest.TestCase):
             maestro_docs_dir=ROOT / "docs",
             maestroxml_src_dir=ROOT / "packages" / "maestroxml" / "src",
             openai_model="gpt-5.4",
+            ollama_model="qwen3.5:cloud",
+            ollama_base_url="http://localhost:11434/api",
             openai_reasoning_effort="low",
             openai_max_output_tokens=20000,
             execution_timeout_seconds=20,
@@ -152,15 +154,18 @@ class DesktopAgentBackendTests(unittest.TestCase):
         execute_mock.assert_called_once()
         self.assertEqual(openai_client.responses.calls[0]["model"], "gpt-5.4")
 
-    def test_apply_live_score_edit_requires_env_api_key_by_default(self) -> None:
+    def test_apply_live_score_edit_openai_provider_requires_key(self) -> None:
         client = backend.DesktopAgentBackend(
             humming_session=Mock(),
             settings_factory=lambda: object(),
         )
 
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(backend.LiveEditError):
-                client.apply_live_score_edit("make it legato")
+            with self.assertRaisesRegex(backend.LiveEditError, "OpenAI requires an API key"):
+                client.apply_live_score_edit(
+                    "make it legato",
+                    provider=backend.ModelProviderConfig.for_openai(),
+                )
 
     def test_apply_live_score_edit_falls_back_to_bridge_snapshot_when_export_fails(self) -> None:
         settings = SimpleNamespace(
@@ -169,6 +174,8 @@ class DesktopAgentBackendTests(unittest.TestCase):
             maestro_docs_dir=ROOT / "docs",
             maestroxml_src_dir=ROOT / "packages" / "maestroxml" / "src",
             openai_model="gpt-5.4",
+            ollama_model="qwen3.5:cloud",
+            ollama_base_url="http://localhost:11434/api",
             openai_reasoning_effort="low",
             openai_max_output_tokens=20000,
             execution_timeout_seconds=20,
@@ -261,6 +268,89 @@ class DesktopAgentBackendTests(unittest.TestCase):
         self.assertIn("piano = score.add_part('Piano', instrument='piano', abbreviation='Pno.', staves=2)", current_score_python)
         self.assertIn("piano_staff_1_voice_1.note('quarter', 'C4')", current_score_python)
         self.assertIn("piano_staff_2_voice_1.note('half', 'C3')", current_score_python)
+
+    def test_apply_live_score_edit_supports_ollama_provider(self) -> None:
+        settings = SimpleNamespace(
+            root_dir=ROOT,
+            maestro_skill_dir=ROOT / "skill",
+            maestro_docs_dir=ROOT / "docs",
+            maestroxml_src_dir=ROOT / "packages" / "maestroxml" / "src",
+            openai_model="gpt-5.4",
+            ollama_model="qwen3.5:cloud",
+            ollama_base_url="http://localhost:11434/api",
+            openai_reasoning_effort="low",
+            openai_max_output_tokens=20000,
+            execution_timeout_seconds=20,
+        )
+        bridge_client = Mock()
+        bridge_client.export_musicxml.return_value = {
+            "path": "/tmp/current-score.musicxml",
+            "format": "musicxml",
+        }
+        bridge_client.apply_actions_streamed.return_value = {
+            "command_count": 1,
+            "all_ok": True,
+            "results": [{"ok": True}],
+        }
+
+        ollama_requester = Mock(
+            return_value={"message": {"content": "def apply_changes(score):\n    pass\n"}}
+        )
+        client = backend.DesktopAgentBackend(
+            humming_session=Mock(),
+            settings_factory=lambda: object(),
+            live_settings_factory=lambda: settings,
+            bridge_client_factory=lambda: bridge_client,
+            audio_transcriber=Mock(return_value=""),
+            openai_client_factory=Mock(side_effect=AssertionError("OpenAI should not be called")),
+            ollama_requester=ollama_requester,
+        )
+
+        with patch.object(backend, "load_reference_corpus", return_value="refs"):
+            with patch.object(
+                backend,
+                "musicxml_to_python",
+                return_value="from maestroxml import Score\n\nscore = Score()\n",
+            ):
+                with patch.object(
+                    backend,
+                    "execute_generated_edit_code",
+                    return_value=[{"kind": "add_dynamic", "text": "ff", "tick": 0}],
+                ):
+                    with patch.object(Path, "is_file", return_value=True):
+                        with patch.object(Path, "unlink", return_value=None):
+                            result = client.apply_live_score_edit(
+                                "add a forte at the opening",
+                                provider=backend.ModelProviderConfig.for_ollama(model="qwen3.5:cloud"),
+                            )
+
+        self.assertEqual(result.action_count, 1)
+        ollama_requester.assert_called_once()
+        call_args = ollama_requester.call_args.args
+        self.assertEqual(call_args[0], "http://localhost:11434/api")
+        self.assertEqual(call_args[1]["model"], "qwen3.5:cloud")
+        self.assertEqual(call_args[1]["stream"], False)
+        self.assertEqual(call_args[1]["messages"][0]["role"], "system")
+        self.assertEqual(call_args[1]["messages"][1]["role"], "user")
+
+    def test_provider_helpers_return_config_objects(self) -> None:
+        openai_provider = backend.ModelProviderConfig.for_openai(api_key="sk-test")
+        ollama_provider = backend.ModelProviderConfig.for_ollama(model="qwen3.5:cloud")
+
+        self.assertIsInstance(openai_provider.openai, backend.OpenAIProviderConfig)
+        self.assertEqual(openai_provider.openai.api_key, "sk-test")
+        self.assertIsInstance(ollama_provider.ollama, backend.OllamaProviderConfig)
+        self.assertEqual(ollama_provider.ollama.model, "qwen3.5:cloud")
+
+    def test_ollama_endpoint_normalizes_host_or_api_base_url(self) -> None:
+        self.assertEqual(
+            backend._resolve_ollama_chat_endpoint("http://localhost:11434"),
+            "http://localhost:11434/api/chat",
+        )
+        self.assertEqual(
+            backend._resolve_ollama_chat_endpoint("http://localhost:11434/api"),
+            "http://localhost:11434/api/chat",
+        )
 
 
 if __name__ == "__main__":

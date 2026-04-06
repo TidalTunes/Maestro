@@ -32,5 +32,8 @@ classifiers = [
 [tool.setuptools]
 package-dir = { "" = "src" }
 
+[tool.setuptools.package-data]
+maestroxml = ["musescore_instrument_names.json"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

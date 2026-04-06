@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from maestroxml import Score, musicxml_string_to_python, musicxml_to_python
+from maestroxml.instruments import load_full_musescore_instrument_names
 
 
 class FakeClient:
@@ -179,7 +180,7 @@ class MaestroXMLTests(unittest.TestCase):
                     "tick": 0,
                     "staff": 0,
                 },
-                {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+                {"kind": "add_key_signature", "key": 0, "tick": 0, "all_staves": True},
                 {
                     "kind": "add_tempo",
                     "bpm": 96,
@@ -288,6 +289,55 @@ class MaestroXMLTests(unittest.TestCase):
             },
             note_actions,
         )
+
+    def test_key_signature_actions_are_score_wide(self) -> None:
+        score = self.build_piano()
+
+        self.assertIn(
+            {"kind": "add_key_signature", "key": 1, "tick": 0, "all_staves": True},
+            score.to_actions(),
+        )
+
+    def test_add_part_resolves_common_instrument_aliases(self) -> None:
+        score = Score(title="Brass Test")
+        horn = score.add_part("Horn", instrument="horn")
+        trumpet = score.add_part("Trumpet", instrument="trumpet")
+        score.measure(1)
+
+        self.assertEqual(horn.bridge_musicxml_id, "brass.french-horn")
+        self.assertEqual(horn.instrument_name, "Horn in F")
+        self.assertEqual(trumpet.bridge_musicxml_id, "brass.trumpet.bflat")
+        self.assertEqual(trumpet.instrument_name, "B-flat Trumpet")
+
+        actions = score.to_actions(include_structure=True)
+        self.assertIn({"kind": "add_part", "musicXmlId": "brass.trumpet.bflat"}, actions)
+
+    def test_add_part_handles_supported_long_names(self) -> None:
+        score = Score(title="Keys")
+        piano = score.add_part("Keyboard", instrument="Grand Piano")
+
+        self.assertEqual(piano.bridge_instrument_id, "piano")
+        self.assertEqual(piano.bridge_musicxml_id, None)
+        self.assertEqual(piano.instrument_name, "Grand Piano")
+
+    def test_musescore_fallback_name_catalog_is_available(self) -> None:
+        names = load_full_musescore_instrument_names()
+        self.assertIn("Horn in F", names)
+        self.assertIn("Grand Piano", names)
+        self.assertIn("B♭ Trumpet", names)
+
+    def test_add_part_uses_canonical_name_fallback_for_supported_instruments(self) -> None:
+        score = Score(title="Mixed Brass")
+        score.add_part("Lead", instrument="Trumpet")
+        bass_trumpet = score.add_part("Support", instrument="bass trumpet")
+        score.measure(1)
+
+        self.assertEqual(bass_trumpet.instrument_name, "Bass Trumpet")
+        self.assertEqual(bass_trumpet.bridge_instrument_id, None)
+        self.assertEqual(bass_trumpet.bridge_musicxml_id, None)
+
+        actions = score.to_actions(include_structure=True)
+        self.assertIn({"kind": "add_part", "instrumentName": "Bass Trumpet"}, actions)
 
     def test_notations_map_supported_marks_and_report_unsupported_spanners(self) -> None:
         score = self.build_notations()
@@ -409,7 +459,7 @@ class MaestroXMLTests(unittest.TestCase):
         actions = score.to_actions()
 
         self.assertIn(
-            {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+            {"kind": "add_key_signature", "key": 0, "tick": 0, "all_staves": True},
             actions,
         )
         self.assertIn(
@@ -576,7 +626,7 @@ class MaestroXMLTests(unittest.TestCase):
                     "tick": 0,
                     "staff": 0,
                 },
-                {"kind": "add_key_signature", "key": 0, "tick": 0, "staff": 0},
+                {"kind": "add_key_signature", "key": 0, "tick": 0, "all_staves": True},
                 {
                     "kind": "add_note",
                     "pitch": "C5",

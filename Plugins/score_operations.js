@@ -264,6 +264,53 @@ var INSTRUMENTS = {
     tenor:"tenor", baritone:"baritone", bass_voice:"bass"
 }
 
+function normalizeInstrumentLookup(value) {
+    if (!value)
+        return ""
+    return String(value)
+        .toLowerCase()
+        .replace(/♭/g, "b")
+        .replace(/♯/g, "#")
+        .replace(/[^a-z0-9#]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+}
+
+function appendPartFromName(score, instrumentName) {
+    var requested = String(instrumentName || "").trim()
+    if (!requested)
+        return false
+
+    try {
+        score.appendPart(requested)
+        return true
+    } catch (e) {}
+
+    var normalized = normalizeInstrumentLookup(requested)
+    for (var key in INSTRUMENTS) {
+        if (!INSTRUMENTS.hasOwnProperty(key))
+            continue
+        var instrumentId = INSTRUMENTS[key]
+        if (
+            normalizeInstrumentLookup(key.replace(/_/g, " ")) === normalized ||
+            normalizeInstrumentLookup(instrumentId.replace(/-/g, " ")) === normalized
+        ) {
+            score.appendPart(instrumentId)
+            return true
+        }
+    }
+
+    var slug = normalized.replace(/\s+/g, "-")
+    if (!slug)
+        return false
+    try {
+        score.appendPart(slug)
+        return true
+    } catch (e) {
+        return false
+    }
+}
+
 
 // ─── Sequential Writer ──────────────────────────────────────────────────────
 // Auto-advancing cursor for writing melodies/parts without manual tick math.
@@ -333,6 +380,17 @@ function executeCommands(score, commands, newEl, fracFn, removeEl, ET) {
     }
     score.endCmd()
     return results
+}
+
+function targetStaffIndexes(score, cmd, defaultStaffIdx) {
+    var applyAllStaves = cmd.allStaves === true || cmd.all_staves === true
+    if (applyAllStaves) {
+        var indexes = []
+        for (var s = 0; s < score.nstaves; s++)
+            indexes.push(s)
+        return indexes
+    }
+    return [defaultStaffIdx]
 }
 
 function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
@@ -458,7 +516,11 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
 
     case "addPart": {
         if (cmd.musicXmlId) score.appendPartByMusicXmlId(cmd.musicXmlId)
-        else score.appendPart(cmd.instrumentId || "piano")
+        else if (cmd.instrumentId) score.appendPart(cmd.instrumentId)
+        else if (cmd.instrumentName) {
+            if (!appendPartFromName(score, cmd.instrumentName))
+                score.appendPart("piano")
+        } else score.appendPart("piano")
         return { ok: true }
     }
 
@@ -492,13 +554,17 @@ function execOp(score, cmd, newEl, fracFn, removeEl, ET) {
 
     case "addKeySignature": {
         if (!newEl) return { ok: false, error: "Missing newElement" }
-        var ks = newEl(ET.KEYSIG)
         var keyVal = cmd.key
         if (typeof keyVal === "string") keyVal = KEYS[keyVal] || 0
-        ks.key = keyVal
-        cursor.staffIdx = staffIdx; cursor.voice = 0
-        cursor.rewindToTick(tick)
-        cursor.add(ks)
+        var targetStaves = targetStaffIndexes(score, cmd, staffIdx)
+        for (var index = 0; index < targetStaves.length; index++) {
+            var ks = newEl(ET.KEYSIG)
+            ks.concertKey = keyVal
+            cursor.staffIdx = targetStaves[index]
+            cursor.voice = 0
+            cursor.rewindToTick(tick)
+            cursor.add(ks)
+        }
         return { ok: true }
     }
 

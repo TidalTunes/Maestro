@@ -52,7 +52,7 @@ In other words: `to_actions()` materializes a full plan, while live-edit runtime
 
 1. Install `maestro-musescore-bridge`.
 2. Install the bridge plugin files in MuseScore.
-3. Open MuseScore and run `Plugins > Maestro > Python Bridge`.
+3. Open MuseScore and run `Plugins > Maestro > Maestro Plugin`.
 4. Keep that bridge dialog open while your Python code runs.
 
 For best results, start from a MuseScore score whose first part matches the first `maestroxml` part. `maestroxml` appends later parts and measures through the bridge, but MuseScore still owns the live document structure.

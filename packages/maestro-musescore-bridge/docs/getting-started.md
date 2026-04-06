@@ -24,8 +24,8 @@ If you are unsure where that directory is, open MuseScore Plugin Manager and use
 
 In MuseScore:
 
-1. Enable `Maestro Python Bridge` in plugin manager.
-2. Run `Plugins > Maestro > Python Bridge`.
+1. Enable `Maestro Plugin` in plugin manager.
+2. Run `Plugins > Maestro > Maestro Plugin`.
 3. Keep the bridge dialog open while your Python script runs.
 
 The bridge watches:

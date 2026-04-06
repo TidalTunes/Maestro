@@ -7,6 +7,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
+from .instruments import resolve_instrument_choice
+
 if TYPE_CHECKING:
     from maestro_musescore_bridge import ActionBatch, MuseScoreBridgeClient
 
@@ -613,15 +615,22 @@ class Score:
 
         bridge_instrument_id = preset.get("bridge_instrument_id")
         bridge_musicxml_id = None
+        resolved_instrument_name = str(preset.get("instrument_name", instrument or name))
         if bridge_instrument_id is None:
-            bridge_musicxml_id = instrument or instrument_key.replace(" ", "-")
+            resolved_instrument = resolve_instrument_choice(instrument or name)
+            if resolved_instrument is not None:
+                resolved_instrument_name = resolved_instrument.label
+                bridge_instrument_id = resolved_instrument.bridge_instrument_id
+                bridge_musicxml_id = resolved_instrument.musicxml_id
+            else:
+                bridge_musicxml_id = instrument or instrument_key.replace(" ", "-")
 
         part = Part(
             score=self,
             part_id=f"P{len(self.parts) + 1}",
             name=name,
             abbreviation=resolved_abbreviation,
-            instrument_name=str(preset.get("instrument_name", instrument or name)),
+            instrument_name=resolved_instrument_name,
             staves=resolved_staves,
             initial_clefs={index + 1: clef for index, clef in enumerate(clef_specs)},
             bridge_instrument_id=str(bridge_instrument_id) if bridge_instrument_id else None,
@@ -747,7 +756,7 @@ class Score:
                         "kind": "add_key_signature",
                         "key": fifths,
                         "tick": measure_tick,
-                        "staff": 0,
+                        "all_staves": True,
                     }
                 )
 
@@ -942,6 +951,8 @@ class Score:
             payload["instrumentId"] = part.bridge_instrument_id
         elif part.bridge_musicxml_id:
             payload["musicXmlId"] = part.bridge_musicxml_id
+        elif part.instrument_name:
+            payload["instrumentName"] = part.instrument_name
         else:
             payload["instrumentId"] = "piano"
         return payload
@@ -961,7 +972,12 @@ class Score:
             )
             clone_part = cloned.add_part(
                 part.name,
-                instrument=part.bridge_instrument_id or part.bridge_musicxml_id or part.name,
+                instrument=(
+                    part.bridge_instrument_id
+                    or part.bridge_musicxml_id
+                    or part.instrument_name
+                    or part.name
+                ),
                 abbreviation=part.abbreviation,
                 staves=part.staves,
                 clefs=((clef.sign, clef.line) for clef in clefs),

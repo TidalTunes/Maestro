@@ -9,7 +9,7 @@ Symptom:
 Checks:
 
 1. Confirm MuseScore is open.
-2. Confirm `Plugins > Maestro > Python Bridge` is running and dialog remains open.
+2. Confirm `Plugins > Maestro > Maestro Plugin` is running and dialog remains open.
 3. Confirm client bridge directory matches plugin directory.
    - default is `~/.maestro-musescore-bridge`
    - override with `MuseScoreBridgeClient(bridge_dir=...)`

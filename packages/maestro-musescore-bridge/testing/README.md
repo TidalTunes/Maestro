@@ -25,7 +25,7 @@ This folder is intentionally isolated from the rest of the repo and only depends
    - `maestro_python_bridge.qml`
    - `bridge_actions.js`
    - `score_operations.js`
-3. In MuseScore, run `Plugins > Maestro > Python Bridge` and keep that dialog open.
+3. In MuseScore, run `Plugins > Maestro > Maestro Plugin` and keep that dialog open.
 4. In a terminal from repo root, install package editable:
 
 ```bash
