@@ -28,9 +28,9 @@ It talks to the `Maestro Plugin` MuseScore plugin over a lightweight file protoc
 - Python `>=3.10`
 - MuseScore with plugin support
 - Bridge plugin files installed in MuseScore plugin directory:
-  - `Plugins/maestro_python_bridge.qml`
-  - `Plugins/bridge_actions.js`
-  - `Plugins/score_operations.js`
+  - `apps/plugin/assets/maestro_python_bridge.qml`
+  - `apps/plugin/assets/bridge_actions.js`
+  - `apps/plugin/assets/score_operations.js`
 
 ## Quick Start
 

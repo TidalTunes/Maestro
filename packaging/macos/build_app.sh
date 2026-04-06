@@ -39,7 +39,7 @@ mkdir -p "$PYINSTALLER_CONFIG_DIR" "$XDG_CACHE_HOME"
 add_data_args=(
   "--add-data" "$ROOT_DIR/README.md:maestro_bundle"
   "--add-data" "$ROOT_DIR/Agent:maestro_bundle/Agent"
-  "--add-data" "$ROOT_DIR/Plugins:maestro_bundle/Plugins"
+  "--add-data" "$ROOT_DIR/apps/plugin/assets:maestro_bundle/apps/plugin/assets"
   "--add-data" "$ROOT_DIR/images:maestro_bundle/images"
   "--add-data" "$ROOT_DIR/skills/maestroxml-sheet-music:maestro_bundle/skills/maestroxml-sheet-music"
   "--add-data" "$ROOT_DIR/packages/agent-core/src:maestro_bundle/packages/agent-core/src"

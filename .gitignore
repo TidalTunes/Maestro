@@ -3,7 +3,11 @@ __pycache__/
 *$py.class
 *.pyc
 *.so
+.coverage
+.coverage.*
 .Python
+.idea/
+.vscode/
 env/
 venv/
 .venv/
@@ -12,11 +16,15 @@ dist/
 build/
 .eggs/
 *.egg
+*.log
 .ipynb_checkpoints/
 .DS_Store
+Thumbs.db
 tmp/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.pytype/
 *.app
 *.dmg
 .pyinstaller/

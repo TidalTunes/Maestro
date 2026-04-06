@@ -1,5 +1,7 @@
 # macOS Packaging
 
+This directory contains the scripts used to build, sign, notarize, and wrap the packaged Maestro macOS release.
+
 ## Build
 
 ```bash
@@ -10,6 +12,13 @@ The build script creates:
 
 - `dist/Maestro.app`
 - `dist/Maestro.app/Contents/MacOS/maestro-runtime-runner`
+
+It bundles:
+
+- the desktop frontend from `apps/frontend-desktop`
+- the compatibility runtime under `Agent/`
+- the MuseScore plugin assets from `apps/plugin/assets`
+- the package source trees needed by the MVP runtime
 
 ## Sign + Notarize
 

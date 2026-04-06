@@ -1,22 +1,30 @@
-# Migration Map
+# Compatibility Map
 
-This repository is in a non-destructive migration from a flat experimental layout into a monorepo.
+This map shows the small number of historical entrypoints that still exist and where their maintained counterparts live.
 
-## Active Destinations
+## Desktop Entry
 
-- `maestro_gui.py` -> `apps/frontend-desktop/src/maestro_desktop/app.py`
-- `Agent/app/main.py` -> `apps/service/src/maestro_service/api/app.py`
-- `Agent/app/agent.py` -> `apps/service/src/maestro_service/bootstrap/generator.py` and `packages/agent-core/src/maestro_agent_core/generation.py`
-- `Agent/app/guard.py` -> `packages/agent-core/src/maestro_agent_core/guard.py`
-- `Agent/app/context/*` -> `packages/agent-core/src/maestro_agent_core/context/*`
-- `Agent/src/maestroxml/*` -> `packages/maestroxml/src/maestroxml/*`
-- `Agent/tests/test_maestroxml.py` -> `packages/maestroxml/tests/test_maestroxml.py`
-- `Agent/tests/golden/*` -> `packages/maestroxml/tests/golden/*`
-- `Agent/detector/*` -> `packages/humming-detector/src/maestro_humming_detector/*`
-- `Agent/detector/tests/*` -> `packages/humming-detector/tests/*`
-- `Agent/app/static/*` -> `legacy/static-web-prototype/*`
-- `pluginExperiment/live_swapper.qml` -> `legacy/plugin-experiment/live_swapper.qml`
+- `maestro_gui.py` -> thin wrapper around `apps/frontend-desktop/src/maestro_desktop/app.py`
 
-## Transitional Rule
+## Compatibility Generator
 
-During this pass, old paths remain in place for compatibility and history preservation. New development should target `apps/`, `packages/`, and `contracts/`.
+- `Agent/app/agent.py` -> compatibility wrapper used by the desktop MVP
+- maintained equivalents for new work:
+  - `apps/service/src/maestro_service/bootstrap/generator.py`
+  - `packages/agent-core/src/maestro_agent_core/generation.py`
+  - `packages/agent-core/src/maestro_agent_core/guard.py`
+  - `packages/agent-core/src/maestro_agent_core/context/`
+
+## Prompt Reference Material
+
+- `Agent/reference-corpus/` -> compatibility prompt corpus still consumed by `Agent/app/agent.py`
+- package and repo documentation for developers live in:
+  - `packages/maestroxml/docs/`
+  - `README.md`
+  - `docs/`
+
+## MuseScore Plugin Assets
+
+- canonical source: `apps/plugin/assets/`
+- runtime consumer: `packages/maestro-musescore-bridge`
+- desktop installer: `apps/frontend-desktop/src/maestro_desktop/plugin_setup.py`

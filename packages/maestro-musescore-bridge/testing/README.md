@@ -2,7 +2,9 @@
 
 This folder is intentionally isolated from the rest of the repo and only depends on:
 
-- `Plugins/maestro_python_bridge.qml`
+- `apps/plugin/assets/maestro_python_bridge.qml`
+- `apps/plugin/assets/bridge_actions.js`
+- `apps/plugin/assets/score_operations.js`
 - `packages/maestro-musescore-bridge`
 
 ## Files

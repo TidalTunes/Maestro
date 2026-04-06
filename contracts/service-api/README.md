@@ -20,4 +20,4 @@ This directory contains the current HTTP contract for the running local Maestro 
 
 ## Current Scope
 
-This contract describes the service as it works today: it returns generated Python and MusicXML. It does not yet describe the future plugin-facing score-action contract.
+This contract describes the service as it works today: it returns generated Python and MusicXML. Structured plugin-facing score actions are documented separately in `contracts/score-actions`.

@@ -56,7 +56,7 @@ def images_dir() -> Path:
 
 
 def plugin_source_dir() -> Path:
-    return resource_path("Plugins")
+    return resource_path("apps", "plugin", "assets")
 
 
 def agent_root_dir() -> Path:

@@ -1,25 +1,24 @@
 # Maestro Plugin
 
-This directory is the stable destination for the MuseScore plugin code once it lands in this repository.
+This directory contains the MuseScore-side assets shipped with Maestro today.
 
-## Intended Responsibility
+## Current Contents
 
-- own MuseScore-specific score reads and writes
-- consume the future `contracts/score-actions` schemas
-- keep MuseScore API details out of the service and shared core packages
+- `assets/maestro_python_bridge.qml`: the running bridge plugin dialog
+- `assets/bridge_actions.js`: action-kind mapping and command translation
+- `assets/score_operations.js`: shared MuseScore score-edit operations
 
-`pluginExperiment/` remains preserved as a legacy experiment during the transition.
+The desktop app installer copies these three files into the user's MuseScore plugin directory on first run.
 
-## What This Module Will Eventually Be Capable Of
+## Responsibility
 
-- receiving structured edit plans from the service layer
-- translating those plans into MuseScore API operations
-- applying edits directly to the live score
-- acting as the authoritative bridge between repository code and the MuseScore runtime
+- keep MuseScore plugin assets in one canonical location
+- provide the user-facing plugin artifact named `Maestro Plugin`
+- isolate MuseScore host specifics from the Python service and shared packages
 
 ## Boundaries
 
-- Put MuseScore host integration here.
+- Put shipped plugin assets and plugin-side notes here.
 - Do not put OpenAI calls here.
 - Do not put general-purpose score-planning logic here.
-- Use `contracts/score-actions` as the interface seam instead of directly depending on service internals.
+- Keep the transport contract in `packages/maestro-musescore-bridge` and `contracts/score-actions`.

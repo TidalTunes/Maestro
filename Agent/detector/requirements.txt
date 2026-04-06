@@ -1,2 +1,0 @@
-librosa>=0.11,<1
-sounddevice>=0.4,<1

@@ -5,7 +5,7 @@ This directory contains language-neutral interface definitions shared across app
 ## Current Contracts
 
 - `service-api`: the current HTTP interface exposed by the local service
-- `score-actions`: the future structured edit contract between the service and the MuseScore plugin
+- `score-actions`: the planned structured edit contract between the service and the MuseScore plugin
 
 ## Why This Exists
 

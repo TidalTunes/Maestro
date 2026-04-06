@@ -12,9 +12,9 @@ This guide gets you from zero to the first successful score edit through Python.
 
 The bridge package depends on these plugin files:
 
-- `Plugins/maestro_python_bridge.qml`
-- `Plugins/bridge_actions.js`
-- `Plugins/score_operations.js`
+- `apps/plugin/assets/maestro_python_bridge.qml`
+- `apps/plugin/assets/bridge_actions.js`
+- `apps/plugin/assets/score_operations.js`
 
 Copy these files into your MuseScore plugin directory.
 

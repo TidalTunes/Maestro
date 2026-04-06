@@ -1,70 +1,68 @@
 # Repository Guide
 
-This document explains what each major module in the repository is for, what it can do today, and where future work should land.
+This document explains where code should live in the current Maestro repository.
 
-## Active System Shape
+## Active Runtime Shape
 
-1. A user-facing frontend captures text or audio intent.
-2. The local service turns that input into an LLM request and validates the response.
-3. Shared packages provide notation and humming-analysis capabilities.
-4. The future plugin will apply structured score edits directly inside MuseScore.
+1. The desktop UI collects prompt text and optional humming input.
+2. The desktop runtime either calls the service or uses the compatibility generator path that still powers the packaged MVP.
+3. Shared packages handle prompt shaping, code validation, score planning, bridge transport, and humming transcription.
+4. The MuseScore plugin assets apply bridge requests inside MuseScore.
 
 ## Module Responsibilities
 
 ### `apps/frontend-desktop`
 
-- Hosts the current PyQt user interface.
-- Supports typed messages, audio-preview UI, playback widgets, loading states, and conversation rendering.
-- Currently acts as a frontend shell with a stubbed `on_prompt_submit` hook rather than a finished service integration.
+- Hosts the active PyQt user interface.
+- Packages the current `maestro_gui.py` experience inside `Maestro.app`.
+- Owns desktop-only concerns such as windowing, plugin installation, and bundled resource lookup.
 
 ### `apps/service`
 
-- Hosts the current FastAPI backend.
-- Exposes `/api/generate`, `/api/humming/start`, `/api/humming/stop`, and `/healthz`.
-- Owns process-level configuration, OpenAI access, and wiring between HTTP requests and shared packages.
-- Returns Python and MusicXML artifacts today; this is expected to evolve toward structured score actions later.
+- Hosts the FastAPI app.
+- Owns HTTP request handling, service bootstrap, and OpenAI client wiring for the service path.
 
 ### `apps/plugin`
 
-- Reserved for the real MuseScore integration.
-- Will eventually consume `contracts/score-actions` and translate them into MuseScore API operations.
-- Should remain the only place that knows MuseScore-specific runtime details.
+- Holds the canonical MuseScore plugin assets shipped with Maestro.
+- Is the source of truth for `Maestro Plugin` files copied into MuseScore.
 
 ### `packages/agent-core`
 
-- Holds prompt-building logic, reference loading, generated-code safety rules, and helper routines for executing generated score code.
-- Should stay independent of FastAPI request handling and MuseScore plugin details.
+- Holds reusable prompt-building, reference-loading, guard, and runtime-runner logic.
+- Should stay decoupled from any single host process.
 
 ### `packages/maestroxml`
 
-- Provides the score-writing abstraction used by the current generation flow.
-- Supports MusicXML serialization and limited MusicXML-to-Python import.
-- Is valuable as a reusable notation package even if the product contract later shifts away from MusicXML artifacts.
+- Provides the score builder and delta-action planning layer.
+- Supports MusicXML import into editable Python.
 
 ### `packages/humming-detector`
 
-- Provides note extraction from recorded humming audio.
-- Includes a small recorder/test utility in addition to the detector API itself.
-- Should remain reusable outside the service process.
+- Provides humming transcription and the standalone recorder utility.
 
-### `contracts/service-api`
+### `packages/maestro-musescore-bridge`
 
-- Defines the current HTTP payload shapes so frontend and service work do not depend on internal Python model layouts.
+- Provides the Python client for the file-based MuseScore bridge.
+- Owns bridge protocol handling and action submission helpers.
 
-### `contracts/score-actions`
+### `contracts/`
 
-- Defines the future structured edit envelope between service and plugin.
-- Exists now to stabilize the integration seam before the implementation is complete.
+- Stores language-neutral interface definitions.
+- `service-api` describes the live HTTP service.
+- `score-actions` describes the planned structured plugin boundary.
 
-### `legacy`
+### `Agent/`
 
-- Preserves earlier experiments for reference.
-- Exists to reduce merge risk during repository restructuring.
+- Keeps only the compatibility generator runtime still used by the current desktop MVP.
+- Includes its own prompt reference corpus under `Agent/reference-corpus/`.
+- Should not receive new product features.
 
-## Default Placement Rules
+## Placement Rules
 
-- New UI host code goes in `apps/frontend-desktop` or `apps/plugin`.
-- New HTTP/bootstrap/runtime code goes in `apps/service`.
-- New reusable domain logic goes in `packages/`.
-- New interface payload definitions go in `contracts/`.
-- Old experiments stay in `legacy/`.
+- Put UI host code in `apps/frontend-desktop`.
+- Put service/bootstrap code in `apps/service`.
+- Put MuseScore plugin assets in `apps/plugin`.
+- Put reusable logic in `packages/`.
+- Put interface schemas in `contracts/`.
+- Put compatibility-only code in `Agent/` only when the packaged MVP still depends on it.

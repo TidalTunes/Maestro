@@ -1,8 +1,8 @@
 # Score Actions Contract
 
-This directory is the future-facing contract boundary between the service and the MuseScore plugin.
+This directory defines the planned structured-edit boundary between the service and the MuseScore plugin.
 
-For this restructuring pass, the live service still returns MusicXML and Python code. These schemas exist so the plugin integration has a stable destination when structured score edits replace the current artifact-based flow.
+The live service still returns Python and MusicXML artifacts today. These schemas document the shape Maestro intends to stabilize when the service starts emitting structured score edits directly.
 
 ## What This Contract Is For
 
@@ -33,4 +33,4 @@ Each action carries:
 
 ## Current Status
 
-These schemas are intentionally minimal. They are placeholders for the future plugin integration, not yet the live output of `apps/service`.
+These schemas are intentionally minimal. They are not yet the live output of `apps/service`.

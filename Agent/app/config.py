@@ -5,8 +5,9 @@ from pathlib import Path
 import os
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_DOCS_DIR = ROOT_DIR / "docs"
+AGENT_ROOT = Path(__file__).resolve().parents[1]
+REFERENCE_ROOT = AGENT_ROOT / "reference-corpus"
+DEFAULT_DOCS_DIR = REFERENCE_ROOT / "docs"
 
 
 def _resolve_path(value: str, default: Path) -> Path:
@@ -14,7 +15,7 @@ def _resolve_path(value: str, default: Path) -> Path:
         return default.resolve()
     path = Path(value)
     if not path.is_absolute():
-        path = ROOT_DIR / path
+        path = REFERENCE_ROOT / path
     return path.resolve()
 
 
@@ -30,7 +31,7 @@ class Settings:
 def get_settings() -> Settings:
     docs_dir = os.environ.get("MAESTRO_DOCS_DIR", "")
     return Settings(
-        root_dir=ROOT_DIR,
+        root_dir=REFERENCE_ROOT,
         maestro_docs_dir=_resolve_path(docs_dir, DEFAULT_DOCS_DIR),
         openai_model=os.environ.get("OPENAI_MODEL", "gpt-5.4"),
         openai_reasoning_effort=os.environ.get("OPENAI_REASONING_EFFORT", "low"),

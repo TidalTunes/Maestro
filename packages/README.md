@@ -5,8 +5,9 @@ This directory contains reusable modules that should stay decoupled from any sin
 ## Current Packages
 
 - `agent-core`: shared LLM-system logic and generated-code safety helpers
-- `maestroxml`: MuseScore bridge editing plus MusicXML-to-Python import support
+- `maestroxml`: score builder, action planning, and MusicXML import helpers
 - `humming-detector`: hummed melody transcription support
+- `maestro-musescore-bridge`: Python client for the MuseScore bridge plugin
 
 ## Ownership Rule
 

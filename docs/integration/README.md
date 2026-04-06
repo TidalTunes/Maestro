@@ -1,22 +1,23 @@
 # Integration Notes
 
-This directory is reserved for integration-specific documentation as the frontend, service, and plugin codebases converge.
+This directory documents how the current Maestro components fit together.
 
-Near-term shared boundaries:
+## Live Integration Story
 
-- `contracts/service-api`
-- `contracts/score-actions`
+- `apps/frontend-desktop` is the user-facing app and packaged entrypoint.
+- `apps/plugin/assets` provides the MuseScore plugin files installed into the user's plugin directory.
+- `packages/maestro-musescore-bridge` talks to that plugin over the file-based bridge directory.
+- `packages/maestroxml` turns score intent into bridge actions.
+- `packages/agent-core` validates and executes generated score code.
+- `apps/service` exposes the same generation stack over HTTP.
 
-## Current Integration Story
+## Current Boundaries
 
-- `apps/frontend-desktop` is the active UI shell.
-- `apps/service` is the active backend boundary.
-- `apps/plugin` is the future destination for direct MuseScore integration.
+- `contracts/service-api` documents the live HTTP service contract.
+- `contracts/score-actions` documents the planned structured score-edit contract.
 
-## Expected Long-Term Flow
+## Important Operational Notes
 
-1. Frontend captures a text prompt and optionally audio context.
-2. Service interprets the request and produces a structured plan.
-3. Plugin consumes the plan and applies score edits through MuseScore.
-
-The repository still contains older artifact-based behavior, especially around MusicXML generation. Those pieces remain useful during the transition, but the integration direction is now centered on contracts rather than direct cross-module assumptions.
+1. The desktop app and the manual Python workflow both require `Maestro Plugin` to be open in MuseScore.
+2. The packaged desktop MVP still depends on the compatibility generator in `Agent/`.
+3. The canonical plugin source is `apps/plugin/assets`, not the old top-level `Plugins/` layout.
