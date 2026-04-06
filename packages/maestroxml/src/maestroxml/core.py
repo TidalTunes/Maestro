@@ -24,8 +24,10 @@ CANONICAL_DURATION_NAMES = {
     "sixteenth": "16th",
     "32nd": "32nd",
     "thirty-second": "32nd",
+    "thirty second": "32nd",
     "64th": "64th",
     "sixty-fourth": "64th",
+    "sixty fourth": "64th",
 }
 
 DURATION_VALUES = {
@@ -327,10 +329,37 @@ class MeasureState:
 
 
 def _normalize_duration_name(duration: str) -> str:
-    canonical = CANONICAL_DURATION_NAMES.get(duration.strip().lower())
+    candidate = duration.strip().lower()
+    canonical = CANONICAL_DURATION_NAMES.get(candidate)
+    if canonical is None:
+        canonical = CANONICAL_DURATION_NAMES.get(candidate.replace("-", " "))
     if canonical is None:
         raise ValueError(f"Unsupported duration name: {duration!r}")
     return canonical
+
+
+def _parse_duration_spec(duration: str, dots: int = 0) -> tuple[str, int]:
+    cleaned = duration.strip().lower()
+    normalized = " ".join(cleaned.replace("-", " ").split())
+    total_dots = int(dots or 0)
+    if total_dots < 0:
+        raise ValueError("Dots must be a non-negative integer")
+
+    dotted_prefixes = (
+        ("single dotted ", 1),
+        ("double dotted ", 2),
+        ("triple dotted ", 3),
+        ("dotted ", 1),
+    )
+
+    for prefix, implied_dots in dotted_prefixes:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+            total_dots += implied_dots
+            break
+
+    duration_name = _normalize_duration_name(normalized)
+    return duration_name, total_dots
 
 
 def _coerce_sequence(value: str | Iterable[str] | None) -> tuple[str, ...]:
@@ -1388,17 +1417,17 @@ class VoiceCursor:
         beams: Iterable[str] | None = None,
     ) -> VoiceCursor:
         stream = self.part._stream(self.voice, self.staff)
-        duration_name = _normalize_duration_name(duration)
+        duration_name, total_dots = _parse_duration_spec(duration, dots=dots)
         tuplet_spec = _parse_tuplet(tuplet, duration_name)
         event = NoteEvent(
             sequence=self.part._next_sequence(),
             offset=stream.offset,
-            duration=_duration_fraction(duration_name, dots=dots, tuplet=tuplet_spec),
+            duration=_duration_fraction(duration_name, dots=total_dots, tuplet=tuplet_spec),
             duration_name=duration_name,
             voice=self.voice,
             staff=self.staff,
             pitches=(_parse_pitch(pitch),),
-            dots=dots,
+            dots=total_dots,
             tuplet=tuplet_spec,
             ties=_normalize_tie_or_slur(tie, "tie"),
             slurs=_normalize_tie_or_slur(slur, "slur"),
@@ -1426,17 +1455,17 @@ class VoiceCursor:
         beams: Iterable[str] | None = None,
     ) -> VoiceCursor:
         stream = self.part._stream(self.voice, self.staff)
-        duration_name = _normalize_duration_name(duration)
+        duration_name, total_dots = _parse_duration_spec(duration, dots=dots)
         tuplet_spec = _parse_tuplet(tuplet, duration_name)
         event = NoteEvent(
             sequence=self.part._next_sequence(),
             offset=stream.offset,
-            duration=_duration_fraction(duration_name, dots=dots, tuplet=tuplet_spec),
+            duration=_duration_fraction(duration_name, dots=total_dots, tuplet=tuplet_spec),
             duration_name=duration_name,
             voice=self.voice,
             staff=self.staff,
             is_rest=True,
-            dots=dots,
+            dots=total_dots,
             tuplet=tuplet_spec,
             beams=tuple(beams or ()),
         )
@@ -1461,17 +1490,17 @@ class VoiceCursor:
         if not parsed_pitches:
             raise ValueError("Chord pitches cannot be empty")
         stream = self.part._stream(self.voice, self.staff)
-        duration_name = _normalize_duration_name(duration)
+        duration_name, total_dots = _parse_duration_spec(duration, dots=dots)
         tuplet_spec = _parse_tuplet(tuplet, duration_name)
         event = NoteEvent(
             sequence=self.part._next_sequence(),
             offset=stream.offset,
-            duration=_duration_fraction(duration_name, dots=dots, tuplet=tuplet_spec),
+            duration=_duration_fraction(duration_name, dots=total_dots, tuplet=tuplet_spec),
             duration_name=duration_name,
             voice=self.voice,
             staff=self.staff,
             pitches=parsed_pitches,
-            dots=dots,
+            dots=total_dots,
             tuplet=tuplet_spec,
             ties=_normalize_tie_or_slur(tie, "tie"),
             slurs=_normalize_tie_or_slur(slur, "slur"),

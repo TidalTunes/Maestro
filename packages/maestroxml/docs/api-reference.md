@@ -345,7 +345,7 @@ These keyword arguments are accepted by `note(...)` and `chord(...)`, and partly
 - `tuplet=(actual, normal)`
 - `tuplet=(actual, normal, normal_type)`
 
-Supported duration names:
+Supported base duration names:
 
 - `whole`
 - `half`
@@ -354,6 +354,21 @@ Supported duration names:
 - `16th`
 - `32nd`
 - `64th`
+
+Allowed aliases:
+
+- `8th`
+- `sixteenth`
+- `thirty-second`
+- `sixty-fourth`
+
+Dotted phrases are also accepted directly:
+
+- `dotted quarter`
+- `double dotted half`
+- `double-dotted eighth`
+
+Those phrases normalize to the same canonical base duration plus `dots`.
 
 ### Notation
 

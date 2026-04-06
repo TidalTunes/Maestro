@@ -24,13 +24,16 @@ score.measure(1)
 score.time_signature("4/4")
 score.key_signature("D minor")
 flute.tempo(84, text="Flowing")
-flute.notes("quarter", ["A4", "C5", "D5", "F5"])
+flute.note("dotted quarter", "A4")
+flute.notes("eighth", ["C5", "D5", "F5"])
 
 actions = score.to_actions()
 result = score.apply()
 ```
 
 `to_actions()` returns bridge action dictionaries.
+
+Durations accept the usual base names such as `quarter` and `eighth`, plus dotted phrases such as `dotted quarter` or `double dotted half`. Those dotted phrases normalize to the existing `duration + dots` bridge format automatically.
 
 `to_string()` returns those actions as pretty JSON.
 

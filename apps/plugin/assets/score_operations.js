@@ -27,17 +27,47 @@
 
 var DURATIONS = {
     "whole": [1,1], "half": [1,2], "quarter": [1,4], "eighth": [1,8],
-    "16th": [1,16], "32nd": [1,32], "64th": [1,64]
+    "16th": [1,16], "32nd": [1,32], "64th": [1,64],
+    "8th": [1,8], "sixteenth": [1,16], "thirty-second": [1,32],
+    "thirty second": [1,32], "sixty-fourth": [1,64], "sixty fourth": [1,64]
+}
+
+function parseDurationSpec(name, dots) {
+    var totalDots = dots || 0
+    var normalized = String(name || "quarter")
+        .toLowerCase()
+        .replace(/-/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+
+    var dottedPrefixes = [
+        ["single dotted ", 1],
+        ["double dotted ", 2],
+        ["triple dotted ", 3],
+        ["dotted ", 1]
+    ]
+    for (var i = 0; i < dottedPrefixes.length; i++) {
+        var prefix = dottedPrefixes[i][0]
+        if (normalized.indexOf(prefix) === 0) {
+            normalized = normalized.slice(prefix.length).trim()
+            totalDots += dottedPrefixes[i][1]
+            break
+        }
+    }
+
+    if (!DURATIONS[normalized])
+        normalized = "quarter"
+    return { name: normalized, dots: totalDots }
 }
 
 function durationFraction(name, dots) {
-    dots = dots || 0
-    var base = DURATIONS[name]
+    var durationSpec = parseDurationSpec(name, dots)
+    var base = DURATIONS[durationSpec.name]
     if (!base) return [1, 4]
     var n = base[0], d = base[1]
-    if (dots === 0) return [n, d]
-    var multN = Math.pow(2, dots + 1) - 1
-    var multD = Math.pow(2, dots)
+    if (durationSpec.dots === 0) return [n, d]
+    var multN = Math.pow(2, durationSpec.dots + 1) - 1
+    var multD = Math.pow(2, durationSpec.dots)
     n = n * multN; d = d * multD
     var g = gcd(n, d)
     return [n / g, d / g]
@@ -213,13 +243,14 @@ function resolvePitch(p) {
 // Convert duration name to ticks (default 480 tpq)
 function durationToTicks(durName, dots, tpq) {
     tpq = tpq || 480
+    var durationSpec = parseDurationSpec(durName, dots)
     var tickMap = {
         "whole": tpq*4, "half": tpq*2, "quarter": tpq, "eighth": tpq/2,
         "16th": tpq/4, "32nd": tpq/8, "64th": tpq/16
     }
-    var baseTicks = tickMap[durName] || tpq
-    if (dots && dots > 0)
-        baseTicks = baseTicks * ((Math.pow(2, dots+1) - 1) / Math.pow(2, dots))
+    var baseTicks = tickMap[durationSpec.name] || tpq
+    if (durationSpec.dots > 0)
+        baseTicks = baseTicks * ((Math.pow(2, durationSpec.dots+1) - 1) / Math.pow(2, durationSpec.dots))
     return Math.round(baseTicks)
 }
 

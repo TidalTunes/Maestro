@@ -37,6 +37,22 @@ ACTION_KINDS: tuple[str, ...] = (
     "modify_measure",
 )
 
+CANONICAL_DURATION_NAMES: dict[str, str] = {
+    "whole": "whole",
+    "half": "half",
+    "quarter": "quarter",
+    "eighth": "eighth",
+    "8th": "eighth",
+    "16th": "16th",
+    "sixteenth": "16th",
+    "32nd": "32nd",
+    "thirty-second": "32nd",
+    "thirty second": "32nd",
+    "64th": "64th",
+    "sixty-fourth": "64th",
+    "sixty fourth": "64th",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class ScoreAction:
@@ -64,20 +80,20 @@ class ActionBatch:
             raise ValueError(f"Unsupported action kind: {kind}")
         action: dict[str, Any] = {"kind": kind}
         action.update(fields)
-        self._actions.append(action)
+        self._actions.append(_normalize_duration_fields(action))
         return self
 
     def extend(self, actions: Iterable[dict[str, Any] | ScoreAction]) -> "ActionBatch":
         for action in actions:
             if isinstance(action, ScoreAction):
-                self._actions.append(action.to_dict())
+                self._actions.append(_normalize_duration_fields(action.to_dict()))
             elif isinstance(action, Mapping):
                 payload = dict(action)
                 if "kind" not in payload:
                     raise ValueError("Action dictionaries must include a 'kind' key")
                 if payload["kind"] not in ACTION_KINDS:
                     raise ValueError(f"Unsupported action kind: {payload['kind']}")
-                self._actions.append(payload)
+                self._actions.append(_normalize_duration_fields(payload))
             else:
                 raise TypeError(f"Unsupported action type: {type(action)!r}")
         return self
@@ -111,3 +127,62 @@ def _install_action_batch_helpers() -> None:
 
 
 _install_action_batch_helpers()
+
+
+def _normalize_duration_name(value: str) -> str:
+    candidate = value.strip().lower()
+    canonical = CANONICAL_DURATION_NAMES.get(candidate)
+    if canonical is None:
+        canonical = CANONICAL_DURATION_NAMES.get(candidate.replace("-", " "))
+    if canonical is None:
+        raise ValueError(f"Unsupported duration name: {value!r}")
+    return canonical
+
+
+def _parse_duration_spec(duration: str, dots: int = 0) -> tuple[str, int]:
+    normalized = " ".join(duration.strip().lower().replace("-", " ").split())
+    total_dots = int(dots or 0)
+    if total_dots < 0:
+        raise ValueError("Dots must be a non-negative integer")
+
+    dotted_prefixes = (
+        ("single dotted ", 1),
+        ("double dotted ", 2),
+        ("triple dotted ", 3),
+        ("dotted ", 1),
+    )
+    for prefix, implied_dots in dotted_prefixes:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+            total_dots += implied_dots
+            break
+
+    return _normalize_duration_name(normalized), total_dots
+
+
+def _normalize_duration_payload_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    duration = payload.get("duration")
+    if isinstance(duration, str):
+        duration_name, total_dots = _parse_duration_spec(duration, payload.get("dots", 0))
+        payload["duration"] = duration_name
+        if total_dots > 0:
+            payload["dots"] = total_dots
+        else:
+            payload.pop("dots", None)
+    return payload
+
+
+def _normalize_duration_fields(action: dict[str, Any]) -> dict[str, Any]:
+    kind = action.get("kind")
+    normalized = dict(action)
+    if kind in {"add_note", "add_chord", "add_rest"}:
+        return _normalize_duration_payload_fields(normalized)
+    if kind == "write_sequence":
+        events = []
+        for event in normalized.get("events", []):
+            if isinstance(event, Mapping):
+                events.append(_normalize_duration_payload_fields(dict(event)))
+            else:
+                events.append(event)
+        normalized["events"] = events
+    return normalized

@@ -112,13 +112,34 @@ class FakeBridgeWorker:
 class MuseScoreBridgeTests(unittest.TestCase):
     def test_action_batch_helper_methods(self) -> None:
         batch = ActionBatch()
-        batch.add_note(pitch="C4", duration="quarter", tick=0, staff=0, voice=0)
+        batch.add_note(pitch="C4", duration="dotted quarter", tick=0, staff=0, voice=0)
         batch.add_dynamic(text="mf", tick=0, staff=0)
 
         actions = batch.to_list()
         self.assertEqual(len(actions), 2)
         self.assertEqual(actions[0]["kind"], "add_note")
+        self.assertEqual(actions[0]["duration"], "quarter")
+        self.assertEqual(actions[0]["dots"], 1)
         self.assertEqual(actions[1]["kind"], "add_dynamic")
+
+    def test_action_batch_normalizes_dotted_sequence_events(self) -> None:
+        batch = ActionBatch(
+            [
+                {
+                    "kind": "write_sequence",
+                    "events": [
+                        {"pitch": "C4", "duration": "double dotted eighth"},
+                        {"type": "rest", "duration": "dotted quarter"},
+                    ],
+                }
+            ]
+        )
+
+        events = batch.to_list()[0]["events"]
+        self.assertEqual(events[0]["duration"], "eighth")
+        self.assertEqual(events[0]["dots"], 2)
+        self.assertEqual(events[1]["duration"], "quarter")
+        self.assertEqual(events[1]["dots"], 1)
 
     def test_client_round_trip_with_fake_bridge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

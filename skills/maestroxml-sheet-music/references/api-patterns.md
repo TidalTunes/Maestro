@@ -32,7 +32,7 @@ edit_score = base_score.clone_shell()
 
 flute = edit_score.parts[0]
 edit_score.measure(4)
-flute.note("quarter", "G5")
+flute.note("dotted quarter", "G5")
 flute.dynamic("mf")
 
 actions = edit_score.to_delta_actions(base_score)
@@ -46,6 +46,7 @@ Key rule: the edit score is a blank change plan, not a replay of the existing sc
 - Use named part and voice globals from the current score context when they exist.
 - Use `part.note(...)` for single pitches and `part.chord(...)` for simultaneous pitches.
 - Use `part.rest(...)` for silence.
+- Dotted duration phrases such as `dotted quarter` are supported; labels like `quarter note` are not.
 - Add measures or parts only when the user explicitly asks for them or when the requested change needs them.
 - Preserve existing musical material by omission. Do not rewrite it.
 
@@ -54,4 +55,4 @@ Key rule: the edit score is a blank change plan, not a replay of the existing sc
 - Recreating the entire current score inside `apply_changes(score)`.
 - Calling `score.apply()`, `score.write()`, `score.to_actions()`, or `score.to_string()` from generated edit code.
 - Importing extra modules.
-- Inventing unsupported duration labels.
+- Inventing unsupported duration labels such as `quarter note`.

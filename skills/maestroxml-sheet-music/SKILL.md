@@ -26,6 +26,7 @@ Use `maestroxml` as an opinionated abstraction over MuseScore score edits.
 - Do not recreate existing notes, rests, chords, directions, parts, or measures unless the user explicitly asks to change them.
 - Reuse named globals from the current score context when available.
 - Prefer naturals and single sharps/flats over double-sharp or double-flat spellings unless the user explicitly asks for them.
+- Dotted duration phrases such as `dotted quarter` or `double dotted eighth` are supported.
 - Use `part.voice(number, staff=...)` for multi-staff or multi-voice work.
 
 ## Supported API Shape

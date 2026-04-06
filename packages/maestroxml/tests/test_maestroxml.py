@@ -158,7 +158,7 @@ class MaestroXMLTests(unittest.TestCase):
         score.measure(1)
         score.time_signature("4/4")
         score.key_signature("A minor")
-        flute.note("quarter", "F#5", dots=1)
+        flute.note("dotted quarter", "F#5")
         flute.note("eighth", "Bb4", tuplet=(3, 2))
         flute.note("eighth", "C5", tuplet=(3, 2))
         flute.note("eighth", "D5", tuplet=(3, 2))
@@ -521,6 +521,51 @@ class MaestroXMLTests(unittest.TestCase):
         self.assertEqual(
             [action["pitch"] for action in note_actions],
             ["F#4", "G4", "C4"],
+        )
+
+    def test_dotted_duration_phrases_map_to_base_duration_and_dots(self) -> None:
+        score = Score(title="Dotted")
+        flute = score.add_part("Flute", instrument="flute")
+        score.measure(1)
+        flute.note("double-dotted eighth", "C5")
+        flute.rest("dotted quarter")
+        flute.chord("dotted half", ["E5", "G5"])
+
+        actions = score.to_actions()
+        self.assertIn(
+            {
+                "kind": "add_note",
+                "pitch": "C5",
+                "duration": "eighth",
+                "dots": 2,
+                "tick": 0,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_rest",
+                "duration": "quarter",
+                "dots": 1,
+                "tick": 420,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
+        )
+        self.assertIn(
+            {
+                "kind": "add_chord",
+                "pitches": ["E5", "G5"],
+                "duration": "half",
+                "dots": 1,
+                "tick": 1140,
+                "staff": 0,
+                "voice": 0,
+            },
+            actions,
         )
 
     def test_musicxml_string_to_python_recreates_hello_world_builder(self) -> None:

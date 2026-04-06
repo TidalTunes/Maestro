@@ -14,7 +14,7 @@ Most actions support these target fields:
 
 ## Duration Values
 
-Where durations are used, valid names are:
+Where durations are used, valid base names are:
 
 - `whole`
 - `half`
@@ -25,6 +25,7 @@ Where durations are used, valid names are:
 - `64th`
 
 Optional `dots` may be used for dotted durations.
+Natural-language dotted phrases such as `dotted quarter`, `double dotted half`, and `double-dotted eighth` are also accepted and are normalized to the same base duration plus `dots`.
 
 ## Supported Actions
 
@@ -41,7 +42,7 @@ Optional `dots` may be used for dotted durations.
   - event shapes:
     - note: `{ "pitch": "C4", "duration": "quarter", "dots": 0 }`
     - chord: `{ "pitches": ["C4", "E4", "G4"], "duration": "half" }`
-    - rest: `{ "type": "rest", "duration": "quarter" }`
+    - rest: `{ "type": "rest", "duration": "dotted quarter" }`
 
 ### Element Modification
 

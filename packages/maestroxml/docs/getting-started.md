@@ -77,11 +77,13 @@ violin.chord("half", ["C5", "E5", "G5"])
 You can also add rhythmic modifiers and notational intent:
 
 ```python
-violin.note("quarter", "F#5", dots=1)
+violin.note("dotted quarter", "F#5")
 violin.note("eighth", "G5", tuplet=(3, 2))
 violin.note("quarter", "A5", tie="start", slur="start")
 violin.note("quarter", "A5", tie="stop", slur="stop", articulations=["accent"])
 ```
+
+`maestroxml` still supports explicit `dots=...`, but dotted duration phrases like `dotted quarter` and `double-dotted eighth` are now accepted directly.
 
 The builder accepts these values even when the current bridge backend can only approximate or skip some of them.
 
