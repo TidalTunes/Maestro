@@ -55,6 +55,10 @@ def images_dir() -> Path:
     return resource_path("images")
 
 
+def app_icon_path() -> Path:
+    return images_dir() / "frame3.png"
+
+
 def plugin_source_dir() -> Path:
     return resource_path("apps", "plugin", "assets")
 

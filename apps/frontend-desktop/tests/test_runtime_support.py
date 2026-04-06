@@ -56,3 +56,15 @@ class RuntimeSupportTests(unittest.TestCase):
             with patch.dict(os.environ, {"MAESTRO_BUNDLE_ROOT": str(bundle_root)}, clear=False):
                 runtime_support.runtime_root.cache_clear()
                 self.assertEqual(runtime_support.plugin_source_dir(), assets.resolve())
+
+    def test_app_icon_path_uses_frame3_in_images_directory(self) -> None:
+        with TemporaryDirectory() as directory:
+            bundle_root = Path(directory)
+            images = bundle_root / "images"
+            images.mkdir(parents=True)
+            with patch.dict(os.environ, {"MAESTRO_BUNDLE_ROOT": str(bundle_root)}, clear=False):
+                runtime_support.runtime_root.cache_clear()
+                self.assertEqual(
+                    runtime_support.app_icon_path(),
+                    (bundle_root / "images" / "frame3.png").resolve(),
+                )

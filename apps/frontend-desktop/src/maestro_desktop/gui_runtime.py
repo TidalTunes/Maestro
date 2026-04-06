@@ -29,7 +29,7 @@ from .plugin_setup import (
     launch_musescore,
     verify_bridge_connection,
 )
-from .runtime_support import frame_paths, images_dir
+from .runtime_support import app_icon_path, frame_paths, images_dir
 from PyQt6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
@@ -43,6 +43,7 @@ from PyQt6.QtGui import (
     QColor,
     QFont,
     QFontDatabase,
+    QIcon,
     QMovie,
     QPainter,
     QPainterPath,
@@ -2053,6 +2054,9 @@ class MaestroWindow(QWidget):
 def main():
     global UI_FONT
     app = QApplication(sys.argv)
+    icon_path = app_icon_path()
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # Try to load clean sans-serif fonts (Claude-style)
     available_fonts = QFontDatabase.families()
@@ -2071,6 +2075,8 @@ def main():
             break
 
     window = MaestroWindow()
+    if icon_path.is_file():
+        window.setWindowIcon(QIcon(str(icon_path)))
     window.show()
     sys.exit(app.exec())
 

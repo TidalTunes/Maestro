@@ -9,6 +9,10 @@ APP_NAME="Maestro"
 RUNNER_NAME="maestro-runtime-runner"
 PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$ROOT_DIR/.pyinstaller/config}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$ROOT_DIR/.pyinstaller/cache}"
+ICON_SOURCE="$ROOT_DIR/images/frame3.png"
+ICON_BUILD_DIR="$BUILD_DIR/icon"
+ICONSET_DIR="$ICON_BUILD_DIR/$APP_NAME.iconset"
+ICON_FILE="$ICON_BUILD_DIR/$APP_NAME.icns"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python interpreter not found at $PYTHON_BIN" >&2
@@ -26,6 +30,12 @@ set_plist_value() {
   fi
 }
 
+render_icon() {
+  local size="$1"
+  local output_path="$2"
+  sips -z "$size" "$size" "$ICON_SOURCE" --out "$output_path" >/dev/null
+}
+
 export PYTHONPATH="$ROOT_DIR/apps/frontend-desktop/src:$ROOT_DIR/packages/agent-core/src:$ROOT_DIR/packages/maestroxml/src:$ROOT_DIR/packages/humming-detector/src:$ROOT_DIR/packages/maestro-musescore-bridge/src:$ROOT_DIR/Agent${PYTHONPATH:+:$PYTHONPATH}"
 export PYINSTALLER_CONFIG_DIR
 export XDG_CACHE_HOME
@@ -33,8 +43,25 @@ export XDG_CACHE_HOME
 "$PYTHON_BIN" -m pip install --upgrade pyinstaller >/dev/null
 
 rm -rf "$BUILD_DIR" "$DIST_DIR/$APP_NAME" "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$RUNNER_NAME" "$DIST_DIR/$RUNNER_NAME.app"
-mkdir -p "$BUILD_DIR" "$DIST_DIR"
+mkdir -p "$BUILD_DIR" "$DIST_DIR" "$ICONSET_DIR"
 mkdir -p "$PYINSTALLER_CONFIG_DIR" "$XDG_CACHE_HOME"
+
+if [[ ! -f "$ICON_SOURCE" ]]; then
+  echo "App icon source not found at $ICON_SOURCE" >&2
+  exit 1
+fi
+
+render_icon 16 "$ICONSET_DIR/icon_16x16.png"
+render_icon 32 "$ICONSET_DIR/icon_16x16@2x.png"
+render_icon 32 "$ICONSET_DIR/icon_32x32.png"
+render_icon 64 "$ICONSET_DIR/icon_32x32@2x.png"
+render_icon 128 "$ICONSET_DIR/icon_128x128.png"
+render_icon 256 "$ICONSET_DIR/icon_128x128@2x.png"
+render_icon 256 "$ICONSET_DIR/icon_256x256.png"
+render_icon 512 "$ICONSET_DIR/icon_256x256@2x.png"
+render_icon 512 "$ICONSET_DIR/icon_512x512.png"
+render_icon 1024 "$ICONSET_DIR/icon_512x512@2x.png"
+iconutil -c icns "$ICONSET_DIR" -o "$ICON_FILE"
 
 add_data_args=(
   "--add-data" "$ROOT_DIR/README.md:maestro_bundle"
@@ -63,6 +90,7 @@ collect_args=(
   --windowed \
   --onedir \
   --name "$APP_NAME" \
+  --icon "$ICON_FILE" \
   --distpath "$DIST_DIR" \
   --workpath "$BUILD_DIR/main" \
   --specpath "$BUILD_DIR/spec" \
@@ -75,6 +103,7 @@ APP_PLIST="$DIST_DIR/$APP_NAME.app/Contents/Info.plist"
 if [[ -f "$APP_PLIST" ]]; then
   set_plist_value "$APP_PLIST" "CFBundleDisplayName" "$APP_NAME"
   set_plist_value "$APP_PLIST" "CFBundleName" "$APP_NAME"
+  set_plist_value "$APP_PLIST" "CFBundleIconFile" "$APP_NAME.icns"
   set_plist_value "$APP_PLIST" "CFBundleShortVersionString" "0.1.0"
   set_plist_value "$APP_PLIST" "CFBundleVersion" "0.1.0"
   set_plist_value "$APP_PLIST" "LSMinimumSystemVersion" "13.0"
