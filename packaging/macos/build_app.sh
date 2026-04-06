@@ -7,8 +7,8 @@ DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/pyinstaller}"
 APP_NAME="Maestro"
 RUNNER_NAME="maestro-runtime-runner"
-PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$BUILD_DIR/config}"
-XDG_CACHE_HOME="${XDG_CACHE_HOME:-$BUILD_DIR/cache}"
+PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$ROOT_DIR/.pyinstaller/config}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$ROOT_DIR/.pyinstaller/cache}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python interpreter not found at $PYTHON_BIN" >&2
@@ -94,5 +94,6 @@ fi
 
 cp "$DIST_DIR/$RUNNER_NAME/$RUNNER_NAME" "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"
 chmod +x "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"
+codesign --force --deep --sign - "$DIST_DIR/$APP_NAME.app"
 
 echo "Built $DIST_DIR/$APP_NAME.app"
