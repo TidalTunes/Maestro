@@ -18,6 +18,14 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def supports_guided_macos_setup() -> bool:
+    return is_frozen() and is_macos()
+
+
 def _env_path(name: str) -> Path | None:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -120,12 +128,18 @@ def frame_paths() -> list[Path]:
 def musescore_plugin_dir_candidates(home: Path | None = None) -> tuple[Path, ...]:
     base = Path.home() if home is None else Path(home).expanduser()
     documents = base / "Documents"
-    return (
+    candidates = [
         documents / "MuseScore4" / "Plugins",
-        documents / "MuseScore4_Deprecated" / "Plugins",
         documents / "MuseScore3" / "Plugins",
-        base / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "Plugins",
-    )
+    ]
+    if is_macos():
+        candidates.extend(
+            [
+                documents / "MuseScore4_Deprecated" / "Plugins",
+                base / "Library" / "Application Support" / "MuseScore" / "MuseScore4" / "Plugins",
+            ]
+        )
+    return tuple(dict.fromkeys(candidates))
 
 
 def detect_musescore_plugin_dir(home: Path | None = None) -> Path:
@@ -137,6 +151,8 @@ def detect_musescore_plugin_dir(home: Path | None = None) -> Path:
 
 
 def musescore_app_candidates(home: Path | None = None) -> tuple[Path, ...]:
+    if not supports_guided_macos_setup():
+        return tuple()
     base = Path.home() if home is None else Path(home).expanduser()
     return (
         Path("/Applications/MuseScore 4.app"),

@@ -36,6 +36,28 @@ class RuntimeSupportTests(unittest.TestCase):
 
             self.assertEqual(runtime_support.detect_musescore_plugin_dir(home), expected)
 
+    def test_musescore_plugin_dir_candidates_use_documents_folder_on_windows(self) -> None:
+        with TemporaryDirectory() as directory:
+            home = Path(directory)
+            with patch.object(runtime_support.sys, "platform", "win32"):
+                candidates = runtime_support.musescore_plugin_dir_candidates(home)
+
+        self.assertEqual(candidates[0], home / "Documents" / "MuseScore4" / "Plugins")
+
+    def test_guided_macos_setup_requires_frozen_bundle(self) -> None:
+        with patch.object(runtime_support.sys, "platform", "darwin"), patch.object(
+            runtime_support.sys,
+            "frozen",
+            True,
+            create=True,
+        ):
+            self.assertTrue(runtime_support.supports_guided_macos_setup())
+
+        with patch.object(runtime_support.sys, "platform", "darwin"):
+            if hasattr(runtime_support.sys, "frozen"):
+                delattr(runtime_support.sys, "frozen")
+            self.assertFalse(runtime_support.supports_guided_macos_setup())
+
     def test_frame_paths_follow_runtime_images_directory(self) -> None:
         with TemporaryDirectory() as directory:
             bundle_root = Path(directory)

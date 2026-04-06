@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to publish"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    env:
+      PYTHONPATH: apps/frontend-desktop/src:apps/service/src:packages/agent-core/src:packages/humming-detector/src:packages/maestro-musescore-bridge/src:packages/maestroxml/src:Agent
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Resolve release metadata
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG_NAME="${{ github.event.inputs.tag_name }}"
+          fi
+          VERSION="${TAG_NAME#v}"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$PWD/dist/Maestro-${VERSION}-macOS-unsigned.dmg" >> "$GITHUB_ENV"
+          echo "ZIP_PATH=$PWD/dist/Maestro-${VERSION}-macOS-unsigned.zip" >> "$GITHUB_ENV"
+
+      - name: Create virtual environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-desktop.txt
+
+      - name: Run release test suite
+        run: |
+          .venv/bin/python -m unittest discover -s apps/frontend-desktop/tests
+          .venv/bin/python -m unittest discover -s apps/service/tests
+          .venv/bin/python -m unittest discover -s packages/agent-core/tests
+          .venv/bin/python -m unittest discover -s packages/humming-detector/tests
+          .venv/bin/python -m unittest discover -s packages/maestro-musescore-bridge/tests
+          .venv/bin/python -m unittest discover -s packages/maestroxml/tests
+          .venv/bin/python -m unittest discover -s tests
+
+      - name: Build Maestro.app
+        env:
+          APP_VERSION: ${{ env.APP_VERSION }}
+        run: ./packaging/macos/build_app.sh
+
+      - name: Build DMG
+        env:
+          OUTPUT_DMG: ${{ env.DMG_PATH }}
+        run: ./packaging/macos/make_dmg.sh
+
+      - name: Build ZIP
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "dist/Maestro.app" "$ZIP_PATH"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_NOTES_FILE=".github/release-notes/${TAG_NAME}.md"
+          if [[ ! -f "$RELEASE_NOTES_FILE" ]]; then
+            RELEASE_NOTES_FILE=".github/release-notes/default.md"
+          fi
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$DMG_PATH" "$ZIP_PATH" --clobber
+            gh release edit "$TAG_NAME" \
+              --title "Maestro ${APP_VERSION}" \
+              --notes-file "$RELEASE_NOTES_FILE"
+          else
+            gh release create "$TAG_NAME" "$DMG_PATH" "$ZIP_PATH" \
+              --title "Maestro ${APP_VERSION}" \
+              --notes-file "$RELEASE_NOTES_FILE" \
+              --target "$GITHUB_SHA"
+          fi

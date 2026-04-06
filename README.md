@@ -1,184 +1,154 @@
 # Maestro
 
-Maestro is a Python monorepo for AI-assisted composition and live MuseScore editing. The current product is a packaged desktop app with a bundled MuseScore bridge plugin, backed by shared Python packages for prompting, score planning, humming transcription, and bridge transport.
+Maestro is an open-source beta app for AI-assisted composition and live MuseScore editing. You describe a musical change, optionally hum an idea, and Maestro turns that request into score edits that can be applied inside MuseScore.
 
-## Current Product Shape
+Maestro `v0.1.0` is the first public beta release.
 
-```text
-prompt / humming
-       |
-       v
-Maestro desktop app
-       |
-       +----------------------+
-       |                      |
-       v                      v
-legacy compatibility      packaged resources
-generator runtime         plugin assets + docs
-       |                      |
-       +----------+-----------+
-                  |
-                  v
-         packages/agent-core
-                  |
-        +---------+---------+
-        |                   |
-        v                   v
-packages/humming-      packages/maestroxml
-detector                     |
-                              v
-               packages/maestro-musescore-bridge
-                              |
-                              v
-                    apps/plugin/assets + MuseScore
-```
+- License: [MIT](LICENSE)
+- Disclaimer: [DISCLAIMER.md](DISCLAIMER.md)
+- Credits: [AUTHORS.md](AUTHORS.md)
+- GitHub release: [v0.1.0](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.0)
 
-## Repository Layout
+## macOS Quick Start
 
-| Path | Role |
-| --- | --- |
-| `apps/frontend-desktop` | Active PyQt desktop app and packaged entrypoint |
-| `apps/service` | Active FastAPI service |
-| `apps/plugin` | Canonical MuseScore plugin assets shipped with Maestro |
-| `packages/agent-core` | Shared prompt construction, validation, and runtime execution helpers |
-| `packages/maestroxml` | Score builder, delta planner, and MusicXML import support |
-| `packages/humming-detector` | Hummed melody transcription |
-| `packages/maestro-musescore-bridge` | Python client for the file-based MuseScore bridge |
-| `contracts/` | Language-neutral interface contracts |
-| `Agent/` | Minimal compatibility runtime used by the current desktop MVP |
-| `docs/` | Repository-level architecture and integration notes |
-| `packaging/macos` | macOS build, notarization, and DMG scripts |
+1. Open the [v0.1.0 release page](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.0).
+2. Download `Maestro-v0.1.0-macOS-unsigned.dmg`.
+   Fallback: `Maestro-v0.1.0-macOS-unsigned.zip`.
+3. Open the DMG and drag `Maestro.app` into `Applications`, or unzip the ZIP and move `Maestro.app` wherever you prefer.
+4. Launch `Maestro.app`.
+5. Use the in-app setup flow to install `Maestro Plugin`, open MuseScore, and verify the bridge connection.
 
-## End-User Flow
+### Unsigned App Warning
 
-The macOS packaging flow builds a single downloadable app:
+`v0.1.0` is not signed or notarized.
 
-```bash
-./packaging/macos/build_app.sh
-```
+On first launch:
 
-Optional release steps:
+1. Right-click `Maestro.app`.
+2. Click `Open`.
+3. Confirm the warning dialog.
 
-```bash
-./packaging/macos/notarize_app.sh
-./packaging/macos/make_dmg.sh
-```
+If macOS blocks the app again:
 
-The packaged app bundles:
+1. Open `System Settings`.
+2. Go to `Privacy & Security`.
+3. Click `Open Anyway` for Maestro.
 
-- the current `maestro_gui.py` UI runtime
-- the compatibility generator runtime under `Agent/`
-- the MuseScore plugin assets from `apps/plugin/assets`
-- local reference material and package source trees required by the MVP runtime
+## Manual Setup for Windows, Linux, or Source-Based macOS Use
 
-On first launch, `Maestro.app` can install `Maestro Plugin` into the user's MuseScore plugin directory and verify bridge connectivity.
+If you do not want the packaged macOS app, use the plugin + Python combo directly from source.
 
-## Developer Setup
-
-### Prerequisites
+### 1. Install Prerequisites
 
 - Python 3.10 or newer
-- `pip`
-- MuseScore, if you want live score editing
-- an OpenAI API key for OpenAI-backed generation
+- MuseScore 4
+- Git
+- either an OpenAI API key or a local Ollama installation, depending on which provider you want to use
 
-### Install Editable Components
+### 2. Clone the Repository
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install \
-  -e packages/maestro-musescore-bridge \
-  -e packages/maestroxml \
-  -e packages/agent-core \
-  -e packages/humming-detector \
-  -e apps/service \
-  -e apps/frontend-desktop
+git clone https://github.com/TidalTunes/Maestro.git
+cd Maestro
 ```
 
-## Running The Main Pieces
+### 3. Create a Virtual Environment and Install Maestro
 
-### Desktop App
+macOS or Linux:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-desktop.txt
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements-desktop.txt
+```
+
+### 4. Install the MuseScore Plugin
+
+From the activated environment:
+
+```bash
+maestro-install-plugin install
+```
+
+If MuseScore uses a non-default plugin folder, install to it explicitly:
+
+```bash
+maestro-install-plugin install --plugin-dir "<your MuseScore plugin folder>"
+```
+
+Default MuseScore 4 plugin folders:
+
+| Platform | Default plugin folder |
+| --- | --- |
+| macOS | `~/Documents/MuseScore4/Plugins` |
+| Windows | `C:\Users\<User>\Documents\MuseScore4\Plugins` |
+| Linux | `~/Documents/MuseScore4/Plugins` |
+
+You can inspect the detected location at any time with:
+
+```bash
+maestro-install-plugin status
+```
+
+### 5. Enable the Plugin in MuseScore
+
+In MuseScore:
+
+1. Open the plugin manager.
+2. Enable `Maestro Plugin`.
+3. Run `Plugins > Maestro > Maestro Plugin`.
+4. Keep that plugin window open while Maestro is sending edits.
+
+### 6. Launch the Python App
+
+If you want to use OpenAI, set your key first:
+
+macOS or Linux:
+
+```bash
+export OPENAI_API_KEY="your-key-here"
 python maestro_gui.py
 ```
 
-`maestro_gui.py` is a thin wrapper around the packaged desktop entrypoint.
+Windows PowerShell:
 
-### Local Service
-
-```bash
-python -m uvicorn maestro_service.api.app:app --reload
+```powershell
+$env:OPENAI_API_KEY="your-key-here"
+python maestro_gui.py
 ```
 
-Current endpoints:
+If you want to use Ollama instead, make sure Ollama is installed and running before you launch Maestro, then choose the Ollama-backed model inside the app.
 
-- `POST /api/generate`
-- `POST /api/humming/start`
-- `POST /api/humming/stop`
-- `GET /healthz`
+## How AI-Assisted Composition Works
 
-### MuseScore Plugin
+Maestro takes your prompt or hummed melody, sends that request through its score-generation pipeline, converts the resulting musical intent into score operations, and applies those operations to a live MuseScore session through `Maestro Plugin`. The result is not autonomous composition magic; it is a beta co-writing tool that still requires human review.
 
-The canonical plugin assets live in:
+## Developers
 
-- `apps/plugin/assets/maestro_python_bridge.qml`
-- `apps/plugin/assets/bridge_actions.js`
-- `apps/plugin/assets/score_operations.js`
+Maestro is developed by:
 
-For manual setup, copy those files into your MuseScore plugin directory, then in MuseScore:
+- Kashi Tuteja — Lead
+- Arthur Gilfanov
+- Matthew Li
 
-1. Enable `Maestro Plugin` in the plugin manager.
-2. Run `Plugins > Maestro > Maestro Plugin`.
-3. Keep the bridge dialog open while Maestro or Python is sending actions.
+We are students at Yale University.
 
-Once the Python package is installed, verify connectivity with:
+## Build and Developer Notes
 
-```bash
-maestro-musescore-bridge ping
-```
+For engineering docs and packaging internals:
 
-### Humming Tester
-
-```bash
-python -m maestro_humming_detector.humming_tester
-```
-
-## Configuration
-
-The desktop live-edit path and service share these runtime knobs:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OPENAI_MODEL` | `gpt-5.4` | Model used for generation |
-| `OPENAI_REASONING_EFFORT` | `low` | Reasoning depth for OpenAI responses |
-| `OPENAI_MAX_OUTPUT_TOKENS` | `20000` | Response token cap |
-| `EXECUTION_TIMEOUT_SECONDS` | `20` | Timeout for generated code execution |
-| `MAESTRO_SKILL_DIR` | bundled skill or `~/.codex/skills/maestroxml-sheet-music` | Override prompt skill directory |
-| `MAESTRO_DOCS_DIR` | packaged or local docs directory | Override reference docs used by generation |
-| `MAESTRO_MAESTROXML_SRC_DIR` | packaged or local `packages/maestroxml/src` | Override the `maestroxml` source tree used for execution |
-
-The HTTP service expects an API key in the request payload. The desktop live-edit flow falls back to `OPENAI_API_KEY` from the environment.
-
-## Tests
-
-Run the repository smoke test after installing the relevant packages:
-
-```bash
-python -m unittest tests/test_monorepo_smoke.py
-```
-
-Package-specific tests and operational notes live in each subproject README.
-
-## Read Next
-
-- [Docs overview](docs/README.md)
-- [Repository guide](docs/architecture/repository-guide.md)
-- [Compatibility map](docs/architecture/migration-map.md)
-- [Integration notes](docs/integration/README.md)
-- [Desktop README](apps/frontend-desktop/README.md)
-- [Plugin README](apps/plugin/README.md)
-- [Service README](apps/service/README.md)
-- [Bridge README](packages/maestro-musescore-bridge/README.md)
+- [Desktop app notes](apps/frontend-desktop/README.md)
+- [Plugin asset notes](apps/plugin/README.md)
+- [Bridge package notes](packages/maestro-musescore-bridge/README.md)
+- [macOS packaging scripts](packaging/macos/README.md)
+- [Repository docs](docs/README.md)

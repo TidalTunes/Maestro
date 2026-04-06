@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maestro v0.1.0</title>
+    <meta
+      name="description"
+      content="Download Maestro v0.1.0 for macOS, or follow the manual plugin plus Python setup for Windows, Linux, and source-based use."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Maestro v0.1.0</p>
+        <h1>AI-assisted composition for MuseScore.</h1>
+        <p class="lede">
+          Prompt a musical change, optionally hum an idea, and let Maestro turn that request into score edits for a live MuseScore session.
+        </p>
+        <div class="actions">
+          <a
+            class="button primary"
+            href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.dmg"
+          >
+            Download for macOS
+          </a>
+          <a
+            class="button secondary"
+            href="https://github.com/TidalTunes/Maestro/releases/download/v0.1.0/Maestro-v0.1.0-macOS-unsigned.zip"
+          >
+            ZIP fallback
+          </a>
+        </div>
+        <p class="warning">
+          The macOS beta is unsigned and not notarized. On first launch, right-click <code>Maestro.app</code> and choose <code>Open</code>.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Manual setup for Windows, Linux, or source-based macOS</h2>
+        <ol>
+          <li>Clone the repo and create a virtual environment.</li>
+          <li>Run <code>python -m pip install -r requirements-desktop.txt</code>.</li>
+          <li>Install the MuseScore plugin with <code>maestro-install-plugin install</code>.</li>
+          <li>Enable <code>Maestro Plugin</code> in MuseScore and run it from <code>Plugins &gt; Maestro</code>.</li>
+          <li>Launch the app with <code>python maestro_gui.py</code>.</li>
+        </ol>
+        <p>
+          Full instructions:
+          <a href="https://github.com/TidalTunes/Maestro/blob/main/README.md">README.md</a>
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>How AI-assisted composition works</h2>
+        <p>
+          Maestro takes your prompt or hummed melody, asks a language model for score-edit code, converts that result into score operations, and applies those operations through a live MuseScore plugin bridge. It is a beta co-writing tool, not an autonomous or reliability-guaranteed composer.
+        </p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Kashi Tuteja (Lead), Arthur Gilfanov, and Matthew Li. Students at Yale University.</p>
+      <p>
+        <a href="https://github.com/TidalTunes/Maestro/blob/main/LICENSE">License</a>
+        <span>·</span>
+        <a href="https://github.com/TidalTunes/Maestro/blob/main/DISCLAIMER.md">Disclaimer</a>
+        <span>·</span>
+        <a href="https://github.com/TidalTunes/Maestro">GitHub</a>
+      </p>
+    </footer>
+  </body>
+</html>

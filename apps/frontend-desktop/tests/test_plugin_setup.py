@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from contextlib import redirect_stdout
+from unittest.mock import patch
 import sys
 import unittest
 
@@ -97,3 +100,62 @@ class PluginSetupTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("bridge offline", message)
+
+    def test_launch_musescore_requires_packaged_macos_mode(self) -> None:
+        with patch("maestro_desktop.plugin_setup.supports_guided_macos_setup", return_value=False):
+            with self.assertRaises(FileNotFoundError) as ctx:
+                plugin_setup.launch_musescore()
+
+        self.assertIn("packaged macOS app", str(ctx.exception))
+
+    def test_cli_status_reports_missing_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            plugin_dir = root / "plugins"
+            source.mkdir()
+            for name in plugin_setup.PLUGIN_FILENAMES:
+                (source / name).write_text(f"contents:{name}", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = plugin_setup.cli_main(
+                    [
+                        "status",
+                        "--plugin-dir",
+                        str(plugin_dir),
+                        "--source-dir",
+                        str(source),
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Plugin folder:", stdout.getvalue())
+        self.assertIn("Missing:", stdout.getvalue())
+
+    def test_cli_install_copies_plugin_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            plugin_dir = root / "plugins"
+            source.mkdir()
+            for name in plugin_setup.PLUGIN_FILENAMES:
+                (source / name).write_text(f"contents:{name}", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = plugin_setup.cli_main(
+                    [
+                        "install",
+                        "--plugin-dir",
+                        str(plugin_dir),
+                        "--source-dir",
+                        str(source),
+                    ]
+                )
+
+            copied = {(plugin_dir / name).read_text(encoding="utf-8") for name in plugin_setup.PLUGIN_FILENAMES}
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Installed Maestro Plugin", stdout.getvalue())
+        self.assertEqual(copied, {f"contents:{name}" for name in plugin_setup.PLUGIN_FILENAMES})

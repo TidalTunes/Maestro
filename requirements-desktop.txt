@@ -1,0 +1,7 @@
+# Install the full editable Maestro desktop stack for manual, source-based use.
+-e packages/maestro-musescore-bridge
+-e packages/maestroxml
+-e packages/agent-core
+-e packages/humming-detector
+-e apps/service
+-e apps/frontend-desktop

@@ -8,12 +8,20 @@ version = "0.1.0"
 description = "PyQt desktop frontend for Maestro."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Kashi Tuteja" },
+  { name = "Arthur Gilfanov" },
+  { name = "Matthew Li" },
+]
 dependencies = [
+  "maestro-musescore-bridge>=0.1.0",
   "PyQt6>=6.0.0",
 ]
 
 [project.scripts]
 maestro-desktop = "maestro_desktop.app:main"
+maestro-install-plugin = "maestro_desktop.plugin_setup:cli_main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

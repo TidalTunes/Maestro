@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-  { name = "OpenAI Codex" },
+  { name = "Kashi Tuteja" },
+  { name = "Arthur Gilfanov" },
+  { name = "Matthew Li" },
 ]
 dependencies = [
   "maestro-musescore-bridge>=0.1.0",

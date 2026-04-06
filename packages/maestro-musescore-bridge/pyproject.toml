@@ -8,8 +8,11 @@ version = "0.1.0"
 description = "Python bridge for controlling MuseScore through the Maestro plugin."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 authors = [
-  { name = "OpenAI Codex" },
+  { name = "Kashi Tuteja" },
+  { name = "Arthur Gilfanov" },
+  { name = "Matthew Li" },
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",

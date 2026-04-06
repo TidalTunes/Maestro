@@ -8,6 +8,15 @@ version = "0.1.0"
 description = "Prompt construction, validation, and generated-code execution for Maestro."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Kashi Tuteja" },
+  { name = "Arthur Gilfanov" },
+  { name = "Matthew Li" },
+]
+dependencies = [
+  "openai>=1.70,<2",
+]
 
 [project.scripts]
 maestro-runtime-runner = "maestro_agent_core.runtime_runner:main"

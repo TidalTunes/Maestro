@@ -24,12 +24,14 @@ from .backend import (
 from .plugin_setup import (
     PLUGIN_DISPLAY_NAME,
     PluginInstallState,
+    describe_plugin_status,
     inspect_plugin_install,
     install_plugin,
     launch_musescore,
     verify_bridge_connection,
 )
 from .runtime_support import app_icon_path, frame_paths, images_dir
+from .runtime_support import supports_guided_macos_setup
 from PyQt6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
@@ -1266,6 +1268,7 @@ class MuseScoreSetupDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._install_state: PluginInstallState | None = None
+        self._guided_setup_supported = supports_guided_macos_setup()
 
         self.setWindowTitle("MuseScore Setup")
         self.setModal(True)
@@ -1301,9 +1304,12 @@ class MuseScoreSetupDialog(QDialog):
         )
         layout.addWidget(title)
 
-        subtitle = QLabel(
+        subtitle_text = (
             "Install the bundled Maestro Plugin, open MuseScore, then verify that the bridge responds."
+            if self._guided_setup_supported
+            else "Install the bundled Maestro Plugin into the folder below, open MuseScore manually, then verify that the bridge responds."
         )
+        subtitle = QLabel(subtitle_text)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
@@ -1333,9 +1339,10 @@ class MuseScoreSetupDialog(QDialog):
         install_button.clicked.connect(self._install_plugin)
         button_row.addWidget(install_button)
 
-        open_button = QPushButton("Open MuseScore")
-        open_button.clicked.connect(self._open_musescore)
-        button_row.addWidget(open_button)
+        self._open_button = QPushButton("Open MuseScore")
+        self._open_button.clicked.connect(self._open_musescore)
+        self._open_button.setVisible(self._guided_setup_supported)
+        button_row.addWidget(self._open_button)
 
         verify_button = QPushButton("Verify Connection")
         verify_button.clicked.connect(self._verify_bridge)
@@ -1368,24 +1375,19 @@ class MuseScoreSetupDialog(QDialog):
         row.addWidget(value_label)
         return widget
 
-    @staticmethod
-    def _plugin_status_text(state: PluginInstallState) -> str:
-        if state.up_to_date:
-            return f"{PLUGIN_DISPLAY_NAME} is installed and up to date."
-
-        pieces: list[str] = []
-        if state.missing_files:
-            pieces.append("Missing: " + ", ".join(state.missing_files))
-        if state.outdated_files:
-            pieces.append("Needs update: " + ", ".join(state.outdated_files))
-        return "; ".join(pieces)
-
     def refresh_status(self, *, check_bridge: bool) -> None:
         state = inspect_plugin_install()
         self._install_state = state
 
         app_path = state.musescore_app_path
-        if app_path is None:
+        if not self._guided_setup_supported:
+            self._musescore_value.setText(
+                "Open MuseScore manually on this platform or source install."
+            )
+            self._musescore_value.setStyleSheet(
+                f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
+            )
+        elif app_path is None:
             self._musescore_value.setText(
                 "MuseScore 4.app not found. Expected in /Applications or ~/Applications."
             )
@@ -1401,7 +1403,7 @@ class MuseScoreSetupDialog(QDialog):
         self._plugin_dir_value.setText(str(state.plugin_dir))
 
         plugin_color = TEXT_PRIMARY if state.up_to_date else RECORDING_COLOR
-        self._plugin_status_value.setText(self._plugin_status_text(state))
+        self._plugin_status_value.setText(describe_plugin_status(state))
         self._plugin_status_value.setStyleSheet(
             f"color: {plugin_color}; font-size: {LABEL_FONT_SIZE}px;"
         )
@@ -1415,7 +1417,7 @@ class MuseScoreSetupDialog(QDialog):
             )
         else:
             self._bridge_status_value.setText(
-                f"After opening Plugins > Maestro > {PLUGIN_DISPLAY_NAME}, click Verify Connection."
+                f"After running Plugins > Maestro > {PLUGIN_DISPLAY_NAME}, click Verify Connection."
             )
             self._bridge_status_value.setStyleSheet(
                 f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
@@ -1912,6 +1914,8 @@ class MaestroWindow(QWidget):
 
     def _maybe_prompt_setup(self):
         if self._setup_prompted or os.environ.get("MAESTRO_SKIP_SETUP_PROMPT", "").strip():
+            return
+        if not supports_guided_macos_setup():
             return
 
         state = inspect_plugin_install()
