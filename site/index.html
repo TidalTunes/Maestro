@@ -29,19 +29,27 @@
             </div>
 
             <div class="how-it-works">
-              <h2>How AI-assisted composition works</h2>
+              <h2>How to get started</h2>
               <ol class="step-list">
                 <li>
                   <span class="step-number">1</span>
-                  <p>Describe a musical change or hum a phrase into Maestro.</p>
+                  <p>Download the macOS app above, or use the manual CLI setup below for Windows, Linux, or source-based macOS.</p>
                 </li>
                 <li>
                   <span class="step-number">2</span>
-                  <p>Maestro asks a model for score-edit code and converts it into score operations.</p>
+                  <p>Have either an OpenAI API key or an Ollama account/setup ready before you start generating edits.</p>
                 </li>
                 <li>
                   <span class="step-number">3</span>
-                  <p>The changes are applied to your live MuseScore session through Maestro Plugin.</p>
+                  <p>Launch Maestro and install <code>Maestro Plugin</code> when the app prompts you.</p>
+                </li>
+                <li>
+                  <span class="step-number">4</span>
+                  <p>In MuseScore, enable the plugin and run <code>Plugins &gt; Maestro &gt; Maestro Plugin</code>.</p>
+                </li>
+                <li>
+                  <span class="step-number">5</span>
+                  <p>Keep the plugin window open, choose your provider in Maestro, and start prompting or humming changes into the score.</p>
                 </li>
               </ol>
             </div>
@@ -85,13 +93,15 @@ $ python3 -m venv .venv
 $ source .venv/bin/activate
 $ python -m pip install --upgrade pip
 $ python -m pip install -r requirements-desktop.txt
+$ # have either an OpenAI API key or an Ollama account/setup ready
 $ maestro-install-plugin install
 $ maestro-install-plugin status
-$ export OPENAI_API_KEY="your-key-here"  # or run Ollama locally
+$ export OPENAI_API_KEY="your-key-here"  # or prepare Ollama instead
 $ python maestro_gui.py</code></pre>
 
             <div class="terminal-notes">
               <p><span>Plugin:</span> Enable <code>Maestro Plugin</code> in MuseScore, then run <code>Plugins &gt; Maestro &gt; Maestro Plugin</code>.</p>
+              <p><span>Provider:</span> You currently need either an OpenAI API key or an Ollama account/setup.</p>
               <p><span>Windows:</span> Use <code>py -3 -m venv .venv</code>, <code>.venv\Scripts\Activate.ps1</code>, and <code>$env:OPENAI_API_KEY="..."</code>.</p>
               <p><span>Full guide:</span> <a href="https://github.com/TidalTunes/Maestro/blob/main/README.md">README.md</a></p>
             </div>

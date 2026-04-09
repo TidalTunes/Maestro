@@ -24,7 +24,9 @@ Maestro `v0.1.0` is the first public beta release.
    Fallback: `Maestro-v0.1.0-macOS-unsigned.zip`.
 3. Open the DMG and drag `Maestro.app` into `Applications`, or unzip the ZIP and move `Maestro.app` wherever you prefer.
 4. Launch `Maestro.app`.
-5. Use the in-app setup flow to install `Maestro Plugin`, open MuseScore, and verify the bridge connection.
+5. Before generating edits, make sure you currently have either an OpenAI API key or an Ollama account/setup ready.
+6. Use the in-app setup flow to install `Maestro Plugin`, open MuseScore, and verify the bridge connection.
+7. Keep `Maestro Plugin` open in MuseScore while you work.
 
 ### Unsigned App Warning
 
@@ -51,7 +53,7 @@ If you do not want the packaged macOS app, use the plugin + Python combo directl
 - Python 3.10 or newer
 - MuseScore 4
 - Git
-- either an OpenAI API key or a local Ollama installation, depending on which provider you want to use
+- either an OpenAI API key or an Ollama account/setup, depending on which provider you want to use
 
 ### 2. Clone the Repository
 
@@ -135,7 +137,7 @@ $env:OPENAI_API_KEY="your-key-here"
 python maestro_gui.py
 ```
 
-If you want to use Ollama instead, make sure Ollama is installed and running before you launch Maestro, then choose the Ollama-backed model inside the app.
+If you want to use Ollama instead, make sure your Ollama account/setup is ready and that Ollama is installed and running before you launch Maestro, then choose the Ollama-backed model inside the app.
 
 ## Developers
 
