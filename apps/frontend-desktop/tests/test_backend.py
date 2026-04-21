@@ -10,8 +10,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "apps" / "frontend-desktop" / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+for extra in (ROOT, SRC):
+    if str(extra) not in sys.path:
+        sys.path.insert(0, str(extra))
 
 from maestro_desktop import backend
 
@@ -41,7 +42,7 @@ class DesktopAgentBackendTests(unittest.TestCase):
         )
 
         with patch.object(
-            backend.legacy_agent_module,
+            backend.score_generation_module,
             "generate_score_code_from_prompt",
             return_value=result,
         ) as generate_mock:

@@ -37,7 +37,7 @@ render_icon() {
   sips -z "$size" "$size" "$ICON_SOURCE" --out "$output_path" >/dev/null
 }
 
-export PYTHONPATH="$ROOT_DIR/apps/frontend-desktop/src:$ROOT_DIR/packages/agent-core/src:$ROOT_DIR/packages/maestroxml/src:$ROOT_DIR/packages/humming-detector/src:$ROOT_DIR/packages/maestro-musescore-bridge/src:$ROOT_DIR/Agent${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$ROOT_DIR:$ROOT_DIR/apps/frontend-desktop/src:$ROOT_DIR/packages/agent-core/src:$ROOT_DIR/packages/maestroxml/src:$ROOT_DIR/packages/humming-detector/src:$ROOT_DIR/packages/maestro-musescore-bridge/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYINSTALLER_CONFIG_DIR
 export XDG_CACHE_HOME
 
@@ -66,7 +66,6 @@ iconutil -c icns "$ICONSET_DIR" -o "$ICON_FILE"
 
 add_data_args=(
   "--add-data" "$ROOT_DIR/README.md:maestro_bundle"
-  "--add-data" "$ROOT_DIR/Agent:maestro_bundle/Agent"
   "--add-data" "$ROOT_DIR/apps/plugin/assets:maestro_bundle/apps/plugin/assets"
   "--add-data" "$ROOT_DIR/images:maestro_bundle/images"
   "--add-data" "$ROOT_DIR/skills/maestroxml-sheet-music:maestro_bundle/skills/maestroxml-sheet-music"

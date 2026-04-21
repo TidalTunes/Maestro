@@ -5,7 +5,7 @@ This document explains where code should live in the current Maestro repository.
 ## Active Runtime Shape
 
 1. The desktop UI collects prompt text and optional humming input.
-2. The desktop runtime either calls the service or uses the compatibility generator path that still powers the packaged MVP.
+2. The desktop runtime either calls the service or uses the prompt-to-score shim that still powers desktop score generation.
 3. Shared packages handle prompt shaping, code validation, score planning, bridge transport, and humming transcription.
 4. The MuseScore plugin assets apply bridge requests inside MuseScore.
 
@@ -52,11 +52,11 @@ This document explains where code should live in the current Maestro repository.
 - `service-api` describes the live HTTP service.
 - `score-actions` describes the planned structured plugin boundary.
 
-### `Agent/`
+### `agent/`
 
-- Keeps only the compatibility generator runtime still used by the current desktop MVP.
-- Includes its own prompt reference corpus under `Agent/reference-corpus/`.
-- Should not receive new product features.
+- Keeps only the small prompt-to-score generation shim still imported by the desktop app.
+- Reuses maintained references from `skills/maestroxml-sheet-music` and `packages/maestroxml/docs`.
+- Should not become a second home for shared product logic.
 
 ## Placement Rules
 
@@ -65,4 +65,4 @@ This document explains where code should live in the current Maestro repository.
 - Put MuseScore plugin assets in `apps/plugin`.
 - Put reusable logic in `packages/`.
 - Put interface schemas in `contracts/`.
-- Put compatibility-only code in `Agent/` only when the packaged MVP still depends on it.
+- Put prompt-to-score shim code in `agent/` only when the desktop generation path still depends on it.

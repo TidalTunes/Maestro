@@ -6,9 +6,9 @@ This map shows the small number of historical entrypoints that still exist and w
 
 - `maestro_gui.py` -> thin wrapper around `apps/frontend-desktop/src/maestro_desktop/app.py`
 
-## Compatibility Generator
+## Score Generation Shim
 
-- `Agent/app/agent.py` -> compatibility wrapper used by the desktop MVP
+- `agent/generator.py` -> prompt-to-score shim used by the desktop app
 - maintained equivalents for new work:
   - `apps/service/src/maestro_service/bootstrap/generator.py`
   - `packages/agent-core/src/maestro_agent_core/generation.py`
@@ -17,11 +17,10 @@ This map shows the small number of historical entrypoints that still exist and w
 
 ## Prompt Reference Material
 
-- `Agent/reference-corpus/` -> compatibility prompt corpus still consumed by `Agent/app/agent.py`
-- package and repo documentation for developers live in:
+- `agent/generator.py` now loads maintained references from:
+  - `skills/maestroxml-sheet-music/`
   - `packages/maestroxml/docs/`
   - `README.md`
-  - `docs/`
 
 ## MuseScore Plugin Assets
 

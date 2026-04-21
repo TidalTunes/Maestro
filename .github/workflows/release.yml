@@ -18,7 +18,7 @@ jobs:
   build-and-release:
     runs-on: macos-14
     env:
-      PYTHONPATH: apps/frontend-desktop/src:apps/service/src:packages/agent-core/src:packages/humming-detector/src:packages/maestro-musescore-bridge/src:packages/maestroxml/src:Agent
+      PYTHONPATH: .:apps/frontend-desktop/src:apps/service/src:packages/agent-core/src:packages/humming-detector/src:packages/maestro-musescore-bridge/src:packages/maestroxml/src
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

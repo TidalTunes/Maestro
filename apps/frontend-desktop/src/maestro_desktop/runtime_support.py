@@ -70,11 +70,6 @@ def app_icon_path() -> Path:
 def plugin_source_dir() -> Path:
     return resource_path("apps", "plugin", "assets")
 
-
-def agent_root_dir() -> Path:
-    return resource_path("Agent")
-
-
 def agent_core_src_dir() -> Path:
     return resource_path("packages", "agent-core", "src")
 
@@ -104,11 +99,11 @@ def skill_dir() -> Path:
 
 def bootstrap_runtime_imports() -> None:
     for path in (
+        runtime_root(),
         agent_core_src_dir(),
         maestroxml_src_dir(),
         humming_detector_src_dir(),
         bridge_src_dir(),
-        agent_root_dir(),
     ):
         resolved = str(path.resolve())
         if resolved not in sys.path:

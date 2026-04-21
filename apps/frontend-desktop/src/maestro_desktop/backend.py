@@ -36,9 +36,8 @@ def bootstrap_local_imports() -> None:
 
 bootstrap_local_imports()
 
-import app.agent as legacy_agent_module
-from app.agent import GeneratedScoreCode
-from app.config import get_settings as get_legacy_settings
+import agent as score_generation_module
+from agent import GeneratedScoreCode, ScoreGenerationSettings
 from maestro_agent_core import (
     AgentError as CoreAgentError,
     build_edit_generation_instructions,
@@ -237,6 +236,19 @@ def get_live_edit_settings() -> LiveEditSettings:
         openai_reasoning_effort=os.environ.get("OPENAI_REASONING_EFFORT", "low"),
         openai_max_output_tokens=int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "20000")),
         execution_timeout_seconds=int(os.environ.get("EXECUTION_TIMEOUT_SECONDS", "20")),
+    )
+
+
+def get_score_generation_settings() -> ScoreGenerationSettings:
+    skill_dir = os.environ.get("MAESTRO_SKILL_DIR") or os.environ.get("MAESTRO_SKILL_PATH", "")
+    docs_dir = os.environ.get("MAESTRO_DOCS_DIR", "")
+    return ScoreGenerationSettings(
+        root_dir=ROOT_DIR,
+        maestro_skill_dir=_resolve_path(skill_dir, DEFAULT_SKILL_DIR),
+        maestro_docs_dir=_resolve_path(docs_dir, DEFAULT_DOCS_DIR),
+        openai_model=os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        openai_reasoning_effort=os.environ.get("OPENAI_REASONING_EFFORT", "low"),
+        openai_max_output_tokens=int(os.environ.get("OPENAI_MAX_OUTPUT_TOKENS", "20000")),
     )
 
 
@@ -777,13 +789,13 @@ def _build_default_humming_session() -> DesktopHummingSession:
 
 
 class DesktopAgentBackend:
-    """Desktop runtime adapter for both legacy codegen and live score edits."""
+    """Desktop runtime adapter for score generation and live score edits."""
 
     def __init__(
         self,
         *,
         humming_session: DesktopHummingSession | None = None,
-        settings_factory=get_legacy_settings,
+        settings_factory=get_score_generation_settings,
         live_settings_factory=get_live_edit_settings,
         bridge_client_factory=MuseScoreBridgeClient,
         audio_transcriber=_default_audio_transcriber,
@@ -804,7 +816,7 @@ class DesktopAgentBackend:
         api_key: str,
         hummed_notes: str = "",
     ) -> GeneratedScoreCode:
-        return legacy_agent_module.generate_score_code_from_prompt(
+        return score_generation_module.generate_score_code_from_prompt(
             prompt,
             api_key,
             self._settings_factory(),

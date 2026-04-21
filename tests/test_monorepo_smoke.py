@@ -8,6 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 for extra in (
+    ROOT,
     ROOT / "apps" / "service" / "src",
     ROOT / "apps" / "frontend-desktop" / "src",
     ROOT / "packages" / "agent-core" / "src",
@@ -20,11 +21,13 @@ for extra in (
 
 class MonorepoSmokeTests(unittest.TestCase):
     def test_imports_service_and_shared_packages(self) -> None:
+        import agent
         import maestro_agent_core
         import maestro_humming_detector
         import maestro_service
         import maestroxml
 
+        self.assertTrue(hasattr(agent, "generate_score_code_from_prompt"))
         self.assertTrue(hasattr(maestro_agent_core, "build_model_input"))
         self.assertTrue(hasattr(maestro_humming_detector, "transcribe_humming"))
         self.assertTrue(hasattr(maestro_service, "app"))

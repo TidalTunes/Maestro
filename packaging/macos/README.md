@@ -16,7 +16,7 @@ The build script creates:
 It bundles:
 
 - the desktop frontend from `apps/frontend-desktop`
-- the compatibility runtime under `Agent/`
+- the prompt-to-score shim under `agent/`
 - the MuseScore plugin assets from `apps/plugin/assets`
 - the package source trees needed by the MVP runtime
 
