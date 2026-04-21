@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maestro-musescore-bridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python bridge for controlling MuseScore through the Maestro plugin."
 readme = "README.md"
 requires-python = ">=3.10"

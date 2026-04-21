@@ -11,6 +11,8 @@ This app contains the current active PyQt desktop frontend that was promoted fro
 - play back recorded preview audio inside the window
 - show loading states and live-edit results
 - install and verify the bundled MuseScore plugin for the macOS app build
+- persist non-secret provider settings locally and store an OpenAI API key in macOS Keychain when available
+- write local structured logs and copy sanitized diagnostics from the UI
 
 ## Current State
 
@@ -21,6 +23,8 @@ This app is the active desktop boundary and now wraps the current `maestro_gui.p
 - `src/maestro_desktop/app.py`: packaged entrypoint wrapper
 - `src/maestro_desktop/gui_runtime.py`: current Maestro UI and live-edit workflow
 - `src/maestro_desktop/runtime_support.py`: repo-vs-bundled resource and path resolution
+- `src/maestro_desktop/settings_store.py`: provider settings persistence and macOS Keychain-backed key storage
+- `src/maestro_desktop/diagnostics.py`: local log file handling and clipboard diagnostics export
 - `src/maestro_desktop/plugin_setup.py`: bundled MuseScore plugin installer and bridge checks
 - `tests/test_import.py`: import smoke test for the promoted frontend package
 

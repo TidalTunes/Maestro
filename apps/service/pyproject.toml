@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maestro-service"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local FastAPI service for Maestro."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,9 +17,9 @@ authors = [
 dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.27,<1",
-  "maestro-agent-core>=0.1.0",
-  "maestro-humming-detector>=0.1.0",
-  "maestroxml>=0.1.0",
+  "maestro-agent-core>=0.1.1",
+  "maestro-humming-detector>=0.1.1",
+  "maestroxml>=0.1.1",
   "openai>=1.70,<2",
   "pydantic>=2,<3",
   "uvicorn[standard]>=0.34,<1",

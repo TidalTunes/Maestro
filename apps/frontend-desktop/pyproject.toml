@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maestro-desktop"
-version = "0.1.0"
-description = "PyQt desktop frontend for Maestro."
+version = "0.1.1"
+description = "PyQt desktop companion for live MuseScore editing with Maestro."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -15,7 +15,7 @@ authors = [
   { name = "Matthew Li" },
 ]
 dependencies = [
-  "maestro-musescore-bridge>=0.1.0",
+  "maestro-musescore-bridge>=0.1.1",
   "PyQt6>=6.0.0",
 ]
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 import os
+import platform
 import sys
 
 
+APP_NAME = "Maestro"
+APP_BUNDLE_ID = "com.tidaltunes.maestro"
 BUNDLE_DIRNAME = "maestro_bundle"
 PLUGIN_FILENAMES = (
     "maestro_python_bridge.qml",
@@ -20,6 +23,41 @@ def is_frozen() -> bool:
 
 def is_macos() -> bool:
     return sys.platform == "darwin"
+
+
+def app_support_dir() -> Path:
+    explicit = _env_path("MAESTRO_APP_SUPPORT_DIR")
+    if explicit is not None:
+        return explicit
+
+    if is_macos():
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+
+    xdg_config_home = _env_path("XDG_CONFIG_HOME")
+    if xdg_config_home is not None:
+        return xdg_config_home / "maestro"
+    return Path.home() / ".config" / "maestro"
+
+
+def app_log_dir() -> Path:
+    explicit = _env_path("MAESTRO_LOG_DIR")
+    if explicit is not None:
+        return explicit
+
+    if is_macos():
+        return Path.home() / "Library" / "Logs" / APP_NAME
+
+    xdg_state_home = _env_path("XDG_STATE_HOME")
+    if xdg_state_home is not None:
+        return xdg_state_home / "maestro" / "logs"
+    return Path.home() / ".local" / "state" / "maestro" / "logs"
+
+
+def macos_version() -> str:
+    version = platform.mac_ver()[0].strip()
+    if version:
+        return version
+    return platform.release()
 
 
 def supports_guided_macos_setup() -> bool:

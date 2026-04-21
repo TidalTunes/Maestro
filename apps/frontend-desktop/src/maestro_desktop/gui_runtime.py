@@ -9,6 +9,7 @@ import tempfile
 import wave
 from dataclasses import dataclass
 from enum import Enum
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -21,6 +22,7 @@ from .backend import (
     OpenAIProviderConfig,
     get_default_provider_config,
 )
+from .diagnostics import build_diagnostics_report, configure_logging, log_event
 from .plugin_setup import (
     PLUGIN_DISPLAY_NAME,
     PluginInstallState,
@@ -32,6 +34,8 @@ from .plugin_setup import (
 )
 from .runtime_support import app_icon_path, frame_paths, images_dir
 from .runtime_support import supports_guided_macos_setup
+from .settings_store import ProviderConfigStore, SettingsStoreError
+from .version import APP_VERSION
 from PyQt6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
@@ -63,6 +67,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QScroller,
@@ -1204,6 +1209,16 @@ class ProviderSettingsDialog(QDialog):
         if provider_config.openai is not None:
             self.openai_key_input.setText(provider_config.openai.api_key)
         openai_layout.addWidget(self.openai_key_input)
+
+        openai_storage_hint = QLabel(
+            "OpenAI keys are stored in macOS Keychain when available. "
+            "Source installs on other platforms should keep using OPENAI_API_KEY."
+        )
+        openai_storage_hint.setWordWrap(True)
+        openai_storage_hint.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
+        )
+        openai_layout.addWidget(openai_storage_hint)
         layout.addWidget(self.openai_section)
 
         self.ollama_section = QWidget()
@@ -1410,6 +1425,7 @@ class MuseScoreSetupDialog(QDialog):
 
         if check_bridge:
             ok, message = verify_bridge_connection()
+            log_event("bridge_status_checked", connected=ok, message=message)
             bridge_color = USER_LABEL_COLOR if ok else RECORDING_COLOR
             self._bridge_status_value.setText(message)
             self._bridge_status_value.setStyleSheet(
@@ -1426,18 +1442,25 @@ class MuseScoreSetupDialog(QDialog):
     def _install_plugin(self) -> None:
         state = install_plugin()
         self._install_state = state
+        log_event(
+            "plugin_installed",
+            plugin_dir=str(state.plugin_dir),
+            up_to_date=state.up_to_date,
+        )
         self.refresh_status(check_bridge=False)
 
     def _open_musescore(self) -> None:
         try:
             path = launch_musescore()
         except FileNotFoundError as exc:
+            log_event("musescore_launch_failed", level=logging.ERROR, error=str(exc))
             self._musescore_value.setText(str(exc))
             self._musescore_value.setStyleSheet(
                 f"color: {RECORDING_COLOR}; font-size: {LABEL_FONT_SIZE}px;"
             )
             return
 
+        log_event("musescore_launch_requested", app_path=str(path))
         self._musescore_value.setText(str(path))
         self._musescore_value.setStyleSheet(
             f"color: {TEXT_PRIMARY}; font-size: {LABEL_FONT_SIZE}px;"
@@ -1731,7 +1754,8 @@ class MaestroWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.backend = DesktopAgentBackend()
-        self._provider_config = get_default_provider_config()
+        self._provider_store = ProviderConfigStore()
+        self._provider_config = self._load_provider_config()
         self._tasks: list[BackgroundTaskThread] = []
         self._setup_prompted = False
         self._setup_window()
@@ -1804,6 +1828,26 @@ class MaestroWindow(QWidget):
         self.setup_btn.setToolTip("Install or verify the MuseScore plugin")
         self.setup_btn.clicked.connect(self._open_setup_dialog)
         header_layout.addWidget(self.setup_btn)
+
+        self.diagnostics_btn = QPushButton("Diag")
+        self.diagnostics_btn.setFixedHeight(24)
+        self.diagnostics_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.diagnostics_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT_SECONDARY};
+                border: none;
+                font-size: 10px;
+                letter-spacing: 1px;
+                padding: 0 6px;
+            }}
+            QPushButton:hover {{
+                color: {TEXT_PRIMARY};
+            }}
+        """)
+        self.diagnostics_btn.setToolTip("Copy local diagnostics for beta feedback")
+        self.diagnostics_btn.clicked.connect(self._copy_diagnostics)
+        header_layout.addWidget(self.diagnostics_btn)
 
         self.settings_btn = QPushButton("⚙")
         self.settings_btn.setFixedSize(24, 24)
@@ -1892,6 +1936,12 @@ class MaestroWindow(QWidget):
 
         self.input_section.set_enabled(False)
         provider_config = self._provider_config
+        resolved_provider_name = provider_config.provider.strip().lower() or "ollama"
+        log_event(
+            "live_edit_requested",
+            provider=resolved_provider_name,
+            has_audio=bool(audio_path),
+        )
         self._start_task(
             lambda: self.backend.apply_live_score_edit(
                 text,
@@ -1906,6 +1956,16 @@ class MaestroWindow(QWidget):
         dialog = ProviderSettingsDialog(self._provider_config, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._provider_config = dialog.provider_config()
+            try:
+                self._provider_store.save(self._provider_config)
+            except SettingsStoreError as exc:
+                log_event("settings_save_failed", level=logging.ERROR, error=str(exc))
+                QMessageBox.warning(self, "Settings", str(exc))
+            else:
+                log_event(
+                    "settings_saved",
+                    provider=self._provider_config.provider.strip().lower() or "ollama",
+                )
             self._refresh_settings_tooltip()
 
     def _open_setup_dialog(self):
@@ -1958,6 +2018,13 @@ class MaestroWindow(QWidget):
         if hummed_notes:
             status += "\n\nHummed input was used."
 
+        log_event(
+            "live_edit_succeeded",
+            provider=self._provider_config.provider.strip().lower() or "ollama",
+            action_count=action_count,
+            hummed=bool(hummed_notes),
+            partial_failures=not all_ok,
+        )
         self.conversation.add_message(Message(type=MessageType.AI_TEXT, content=status))
         self.input_section.set_enabled(True)
         self.input_section.text_input.setFocus()
@@ -1970,9 +2037,33 @@ class MaestroWindow(QWidget):
         if python_code:
             message = f"{message}\n\nGenerated edit code:\n{python_code}"
 
+        log_event(
+            "live_edit_failed",
+            level=logging.ERROR,
+            provider=self._provider_config.provider.strip().lower() or "ollama",
+            error=str(exc),
+        )
         self.conversation.add_message(Message(type=MessageType.AI_TEXT, content=message))
         self.input_section.set_enabled(True)
         self.input_section.text_input.setFocus()
+
+    def _copy_diagnostics(self):
+        report = build_diagnostics_report(self._provider_config)
+        QApplication.clipboard().setText(report)
+        QMessageBox.information(
+            self,
+            "Diagnostics Copied",
+            "A local diagnostics bundle was copied to the clipboard.",
+        )
+
+    def _load_provider_config(self) -> ModelProviderConfig:
+        default_config = get_default_provider_config()
+        try:
+            loaded = self._provider_store.load(default_config)
+        except SettingsStoreError as exc:
+            log_event("settings_load_failed", level=logging.ERROR, error=str(exc))
+            return default_config
+        return loaded
 
     # Drag and resize handling
     def _get_resize_edge(self, pos):
@@ -2057,7 +2148,13 @@ class MaestroWindow(QWidget):
 
 def main():
     global UI_FONT
+    configure_logging()
+    log_event("app_started", app_version=APP_VERSION)
     app = QApplication(sys.argv)
+    app.setApplicationName("Maestro")
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName("TidalTunes")
+    app.setOrganizationDomain("tidaltunes.github.io")
     icon_path = app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))

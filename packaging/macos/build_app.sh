@@ -7,13 +7,14 @@ DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/pyinstaller}"
 APP_NAME="Maestro"
 RUNNER_NAME="maestro-runtime-runner"
-APP_VERSION="${APP_VERSION:-0.1.0}"
+APP_VERSION="${APP_VERSION:-0.1.1}"
 PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$ROOT_DIR/.pyinstaller/config}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$ROOT_DIR/.pyinstaller/cache}"
 ICON_SOURCE="$ROOT_DIR/images/frame3.png"
 ICON_BUILD_DIR="$BUILD_DIR/icon"
 ICONSET_DIR="$ICON_BUILD_DIR/$APP_NAME.iconset"
 ICON_FILE="$ICON_BUILD_DIR/$APP_NAME.icns"
+HOOKS_DIR="$ROOT_DIR/packaging/pyinstaller/hooks"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python interpreter not found at $PYTHON_BIN" >&2
@@ -42,6 +43,23 @@ export PYINSTALLER_CONFIG_DIR
 export XDG_CACHE_HOME
 
 "$PYTHON_BIN" -m pip install --upgrade pyinstaller >/dev/null
+
+find \
+  "$ROOT_DIR/apps/frontend-desktop/src" \
+  "$ROOT_DIR/packages/agent-core/src" \
+  "$ROOT_DIR/packages/humming-detector/src" \
+  "$ROOT_DIR/packages/maestro-musescore-bridge/src" \
+  "$ROOT_DIR/packages/maestroxml/src" \
+  "$ROOT_DIR/skills/maestroxml-sheet-music" \
+  -type d -name "__pycache__" -prune -exec rm -rf {} +
+find \
+  "$ROOT_DIR/apps/frontend-desktop/src" \
+  "$ROOT_DIR/packages/agent-core/src" \
+  "$ROOT_DIR/packages/humming-detector/src" \
+  "$ROOT_DIR/packages/maestro-musescore-bridge/src" \
+  "$ROOT_DIR/packages/maestroxml/src" \
+  "$ROOT_DIR/skills/maestroxml-sheet-music" \
+  -type f -name "*.pyc" -delete
 
 rm -rf "$BUILD_DIR" "$DIST_DIR/$APP_NAME" "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$RUNNER_NAME" "$DIST_DIR/$RUNNER_NAME.app"
 mkdir -p "$BUILD_DIR" "$DIST_DIR" "$ICONSET_DIR"
@@ -76,12 +94,14 @@ add_data_args=(
   "--add-data" "$ROOT_DIR/packages/maestroxml/docs:maestro_bundle/packages/maestroxml/docs"
 )
 
-collect_args=(
-  "--collect-all" "librosa"
-  "--collect-all" "sounddevice"
-  "--collect-all" "soundfile"
-  "--collect-all" "numba"
-  "--collect-all" "llvmlite"
+pyinstaller_common_args=(
+  "--additional-hooks-dir" "$HOOKS_DIR"
+  "--exclude-module" "pytest"
+  "--exclude-module" "unittest"
+  "--exclude-module" "matplotlib"
+  "--exclude-module" "IPython"
+  "--exclude-module" "tkinter"
+  "--exclude-module" "_tkinter"
 )
 
 "$PYTHON_BIN" -m PyInstaller \
@@ -95,8 +115,8 @@ collect_args=(
   --workpath "$BUILD_DIR/main" \
   --specpath "$BUILD_DIR/spec" \
   --osx-bundle-identifier "com.tidaltunes.maestro" \
+  "${pyinstaller_common_args[@]}" \
   "${add_data_args[@]}" \
-  "${collect_args[@]}" \
   "$ROOT_DIR/apps/frontend-desktop/src/maestro_desktop/app.py"
 
 APP_PLIST="$DIST_DIR/$APP_NAME.app/Contents/Info.plist"
@@ -119,8 +139,8 @@ fi
   --distpath "$DIST_DIR" \
   --workpath "$BUILD_DIR/runner" \
   --specpath "$BUILD_DIR/spec" \
-  --collect-all "maestroxml" \
-  --collect-all "maestro_musescore_bridge" \
+  "${pyinstaller_common_args[@]}" \
+  --collect-data "maestroxml" \
   "$ROOT_DIR/packages/agent-core/src/maestro_agent_core/runtime_runner.py"
 
 cp "$DIST_DIR/$RUNNER_NAME" "$DIST_DIR/$APP_NAME.app/Contents/MacOS/$RUNNER_NAME"

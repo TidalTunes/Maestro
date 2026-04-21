@@ -2,7 +2,7 @@
 
 ![Maestro in use](./screenshot.png)
 
-Maestro is an open-source beta app for AI-assisted composition and live MuseScore editing.
+Maestro is an open-source beta macOS desktop companion for live MuseScore editing. It is not a standalone notation editor.
 
 ## How AI-Assisted Composition Works
 
@@ -10,27 +10,29 @@ Maestro is an open-source beta app for AI-assisted composition and live MuseScor
 2. Maestro asks a model for score-edit code and turns that result into score operations.
 3. Those operations are applied to a live MuseScore session through `Maestro Plugin`.
 
-Maestro `v0.1.0` is the first public beta release.
+Maestro `v0.1.1` is the current public beta release.
 
 - License: [MIT](LICENSE)
 - Disclaimer: [DISCLAIMER.md](DISCLAIMER.md)
 - Credits: [AUTHORS.md](AUTHORS.md)
-- GitHub release: [v0.1.0](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.0)
+- GitHub release: [v0.1.1](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.1)
 
 ## macOS Quick Start
 
-1. Open the [v0.1.0 release page](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.0).
-2. Download `Maestro-v0.1.0-macOS-unsigned.dmg`.
-   Fallback: `Maestro-v0.1.0-macOS-unsigned.zip`.
+1. Open the [v0.1.1 release page](https://github.com/TidalTunes/Maestro/releases/tag/v0.1.1).
+2. Download `Maestro-v0.1.1-macOS-unsigned.dmg`.
+   Fallback: `Maestro-v0.1.1-macOS-unsigned.zip`.
 3. Open the DMG and drag `Maestro.app` into `Applications`, or unzip the ZIP and move `Maestro.app` wherever you prefer.
 4. Launch `Maestro.app`.
 5. Before generating edits, make sure you currently have either an OpenAI API key or an Ollama account/setup ready.
 6. Use the in-app setup flow to install `Maestro Plugin`, open MuseScore, and verify the bridge connection.
-7. Keep `Maestro Plugin` open in MuseScore while you work.
+7. Open the provider settings in Maestro. The app remembers non-secret settings locally, and on macOS it stores an OpenAI API key in Keychain when you save one.
+8. Keep `Maestro Plugin` open in MuseScore while you work.
+9. If you need to report a beta issue, use `Diag` in the app header to copy a local diagnostics bundle with version info, provider mode, plugin status, and recent logs. On macOS, the local log file lives at `~/Library/Logs/Maestro/maestro.log`.
 
 ### Unsigned App Warning
 
-`v0.1.0` is not signed or notarized.
+`v0.1.1` is not signed or notarized.
 
 On first launch:
 
@@ -138,6 +140,8 @@ python maestro_gui.py
 ```
 
 If you want to use Ollama instead, make sure your Ollama account/setup is ready and that Ollama is installed and running before you launch Maestro, then choose the Ollama-backed model inside the app.
+
+Manual source installs do not use the macOS app wrapper, Keychain-backed key storage, or the in-app diagnostics shortcut. For those setups, keep using environment variables such as `OPENAI_API_KEY`.
 
 ## Developers
 
