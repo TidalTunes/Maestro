@@ -1115,8 +1115,17 @@ class AudioPreviewBar(QFrame):
 class ProviderSettingsDialog(QDialog):
     """Small provider settings dialog for the Python Maestro UI."""
 
-    def __init__(self, provider_config: ModelProviderConfig, parent=None):
+    def __init__(
+        self,
+        provider_config: ModelProviderConfig,
+        *,
+        open_setup_callback=None,
+        copy_diagnostics_callback=None,
+        parent=None,
+    ):
         super().__init__(parent)
+        self._open_setup_callback = open_setup_callback
+        self._copy_diagnostics_callback = copy_diagnostics_callback
         self._openai_model = (
             provider_config.openai.model
             if provider_config.openai is not None
@@ -1241,6 +1250,26 @@ class ProviderSettingsDialog(QDialog):
         ollama_layout.addWidget(self.ollama_model_input)
         layout.addWidget(self.ollama_section)
 
+        support_label = QLabel("Tools")
+        support_label.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {LABEL_FONT_SIZE}px;"
+        )
+        layout.addWidget(support_label)
+
+        tool_row = QHBoxLayout()
+        tool_row.setSpacing(8)
+
+        self.setup_button = QPushButton("Setup")
+        self.setup_button.setToolTip("Install or verify the MuseScore plugin")
+        self.setup_button.clicked.connect(self._open_setup)
+        tool_row.addWidget(self.setup_button)
+
+        self.diagnostics_button = QPushButton("Copy Diagnostics")
+        self.diagnostics_button.setToolTip("Copy local diagnostics for beta feedback")
+        self.diagnostics_button.clicked.connect(self._copy_diagnostics)
+        tool_row.addWidget(self.diagnostics_button)
+        layout.addLayout(tool_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save
         )
@@ -1275,6 +1304,14 @@ class ProviderSettingsDialog(QDialog):
                 base_url=self._ollama_base_url,
             ),
         )
+
+    def _open_setup(self):
+        if self._open_setup_callback is not None:
+            self._open_setup_callback()
+
+    def _copy_diagnostics(self):
+        if self._copy_diagnostics_callback is not None:
+            self._copy_diagnostics_callback()
 
 
 class MuseScoreSetupDialog(QDialog):
@@ -1809,46 +1846,6 @@ class MaestroWindow(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        self.setup_btn = QPushButton("Setup")
-        self.setup_btn.setFixedHeight(24)
-        self.setup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setup_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {TEXT_SECONDARY};
-                border: none;
-                font-size: 10px;
-                letter-spacing: 1px;
-                padding: 0 6px;
-            }}
-            QPushButton:hover {{
-                color: {TEXT_PRIMARY};
-            }}
-        """)
-        self.setup_btn.setToolTip("Install or verify the MuseScore plugin")
-        self.setup_btn.clicked.connect(self._open_setup_dialog)
-        header_layout.addWidget(self.setup_btn)
-
-        self.diagnostics_btn = QPushButton("Diag")
-        self.diagnostics_btn.setFixedHeight(24)
-        self.diagnostics_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.diagnostics_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {TEXT_SECONDARY};
-                border: none;
-                font-size: 10px;
-                letter-spacing: 1px;
-                padding: 0 6px;
-            }}
-            QPushButton:hover {{
-                color: {TEXT_PRIMARY};
-            }}
-        """)
-        self.diagnostics_btn.setToolTip("Copy local diagnostics for beta feedback")
-        self.diagnostics_btn.clicked.connect(self._copy_diagnostics)
-        header_layout.addWidget(self.diagnostics_btn)
-
         self.settings_btn = QPushButton("⚙")
         self.settings_btn.setFixedSize(24, 24)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1953,7 +1950,12 @@ class MaestroWindow(QWidget):
         )
 
     def _open_settings_dialog(self):
-        dialog = ProviderSettingsDialog(self._provider_config, self)
+        dialog = ProviderSettingsDialog(
+            self._provider_config,
+            open_setup_callback=self._open_setup_dialog,
+            copy_diagnostics_callback=self._copy_diagnostics,
+            parent=self,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._provider_config = dialog.provider_config()
             try:
