@@ -10,19 +10,27 @@ from maestro_agent_core import response_status_message
 from maestro_agent_core.context import ReferenceLoadError, load_reference_corpus
 
 
-SUPPORTED_DURATION_NAMES = {
-    "whole",
-    "half",
-    "quarter",
-    "eighth",
-    "8th",
-    "16th",
-    "sixteenth",
-    "32nd",
-    "thirty-second",
-    "64th",
-    "sixty-fourth",
+CANONICAL_DURATION_NAMES = {
+    "whole": "whole",
+    "half": "half",
+    "quarter": "quarter",
+    "eighth": "eighth",
+    "8th": "eighth",
+    "16th": "16th",
+    "sixteenth": "16th",
+    "32nd": "32nd",
+    "thirty-second": "32nd",
+    "thirty second": "32nd",
+    "64th": "64th",
+    "sixty-fourth": "64th",
+    "sixty fourth": "64th",
 }
+DOTTED_DURATION_PREFIXES = (
+    "single dotted ",
+    "double dotted ",
+    "triple dotted ",
+    "dotted ",
+)
 NOTE_METHOD_NAMES = {"note", "notes", "rest", "chord"}
 DISALLOWED_CALL_NAMES = {
     "eval",
@@ -113,8 +121,9 @@ def build_generation_instructions(reference_corpus: str) -> str:
         "- Keep bridge limits in mind and avoid promising unsupported backend materialization.\n"
         "</bridge_guidance>\n\n"
         "<duration_contract>\n"
-        "- Supported duration names are whole, half, quarter, eighth, 16th, 32nd, 64th.\n"
+        "- Supported base duration names are whole, half, quarter, eighth, 16th, 32nd, 64th.\n"
         "- Allowed aliases are 8th, sixteenth, thirty-second, sixty-fourth.\n"
+        "- Dotted phrases such as dotted quarter, double dotted half, and double-dotted eighth are supported and map to dots automatically.\n"
         "- Never invent duration labels such as note, beat, quarter note, or quarter-note.\n"
         "</duration_contract>\n\n"
         "<reference_material>\n"
@@ -239,11 +248,18 @@ def _call_name(node: ast.AST) -> str:
 
 
 def _validate_duration_literal(value: str, source: str) -> None:
-    if value not in SUPPORTED_DURATION_NAMES:
-        supported = ", ".join(sorted(SUPPORTED_DURATION_NAMES))
+    normalized = " ".join(value.strip().lower().replace("-", " ").split())
+    for prefix in DOTTED_DURATION_PREFIXES:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+            break
+
+    if normalized not in CANONICAL_DURATION_NAMES:
+        supported = ", ".join(sorted(CANONICAL_DURATION_NAMES))
         raise AgentError(
             f"Unsupported duration literal {value!r} in generated code ({source}). "
-            f"Supported duration names: {supported}."
+            "Supported duration names: "
+            f"{supported}. Dotted forms such as 'dotted quarter' are also allowed."
         )
 
 

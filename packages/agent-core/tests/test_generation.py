@@ -101,12 +101,33 @@ class GuardTests(unittest.TestCase):
                 "    score.write(output_path)\n"
             )
 
+    def test_accepts_dotted_duration_literals(self) -> None:
+        validate_generated_code(
+            "from maestroxml import Score\n"
+            "def build_score(output_path):\n"
+            "    score = Score()\n"
+            "    part = score.add_part('Flute', instrument='flute')\n"
+            "    score.measure(1)\n"
+            "    part.rest('dotted half')\n"
+            "    part.note('double-dotted eighth', 'C5')\n"
+            "    score.write(output_path)\n"
+        )
+
     def test_accepts_edit_contract(self) -> None:
         validate_generated_edit_code(
             "def apply_changes(score):\n"
             "    flute = score.parts[0]\n"
             "    score.measure(2)\n"
             "    flute.note('quarter', 'D5')\n"
+        )
+
+    def test_accepts_dotted_edit_duration_literals(self) -> None:
+        validate_generated_edit_code(
+            "def apply_changes(score):\n"
+            "    flute = score.parts[0]\n"
+            "    score.measure(2)\n"
+            "    flute.rest('dotted half')\n"
+            "    flute.note('double dotted quarter', 'D5')\n"
         )
 
     def test_rejects_edit_imports(self) -> None:
