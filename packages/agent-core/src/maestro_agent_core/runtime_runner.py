@@ -1,9 +1,27 @@
 from __future__ import annotations
 
+#
+# The packaged runner executes Maestro source trees that live outside the
+# onefile binary, so PyInstaller cannot infer stdlib dependencies from them
+# during analysis. Keep these imports explicit so the bundled runner has the
+# stdlib modules needed by maestroxml and the MuseScore bridge at runtime.
+#
+import argparse
+import collections
+import dataclasses
+import difflib
+import fractions
+import functools
 import json
 import os
 from pathlib import Path
+import re
 import sys
+import time
+import typing
+import unicodedata
+import uuid
+import xml.etree.ElementTree
 
 
 def _bootstrap_external_import_paths() -> None:
