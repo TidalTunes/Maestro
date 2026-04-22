@@ -2,7 +2,7 @@
 
 ![Maestro in use](./screenshot.png)
 
-Maestro is an open-source beta macOS desktop companion for live MuseScore editing. It is not a standalone notation editor.
+Maestro is an open-source beta macOS desktop companion for live MuseScore editing.
 
 ## How AI-Assisted Composition Works
 
